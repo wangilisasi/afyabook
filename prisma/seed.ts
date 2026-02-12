@@ -1,10 +1,23 @@
+import { config } from 'dotenv'
+config()
+
 import { PrismaClient } from '@prisma/client'
 import { PrismaNeon } from '@prisma/adapter-neon'
-import { Pool } from '@neondatabase/serverless'
+import { neonConfig } from '@neondatabase/serverless'
+import ws from 'ws'
 
-const pool = new Pool({ connectionString: process.env.DATABASE_URL })
-const adapter = new PrismaNeon(pool)
+// Configure Neon to use ws (WebSocket) for Node.js
+neonConfig.webSocketConstructor = ws
 
+const databaseUrl = process.env.DATABASE_URL
+if (!databaseUrl) {
+  console.error('ERROR: DATABASE_URL environment variable is not set')
+  console.error('Please check your .env file')
+  process.exit(1)
+}
+
+// Create adapter with connection string directly
+const adapter = new PrismaNeon({ connectionString: databaseUrl })
 const prisma = new PrismaClient({ adapter })
 
 async function main() {

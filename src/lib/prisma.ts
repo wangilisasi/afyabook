@@ -1,15 +1,16 @@
 import { PrismaClient } from '@prisma/client'
 import { PrismaNeon } from '@prisma/adapter-neon'
-import { Pool } from '@neondatabase/serverless'
+import { neonConfig } from '@neondatabase/serverless'
+import ws from 'ws'
 import { authorizationMiddleware } from './middleware/authorization'
+
+// Configure Neon to use ws (WebSocket) for Node.js
+neonConfig.webSocketConstructor = ws
 
 const globalForPrisma = global as unknown as { prisma: PrismaClient }
 
-// Create Neon connection pool
-const pool = new Pool({ connectionString: process.env.DATABASE_URL })
-const adapter = new PrismaNeon(pool)
-
-// Create Prisma client with adapter
+// Create Prisma client with Neon adapter
+const adapter = new PrismaNeon({ connectionString: process.env.DATABASE_URL })
 export const prisma = globalForPrisma.prisma || new PrismaClient({ adapter })
 
 // Apply authorization middleware
