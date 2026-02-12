@@ -10,7 +10,7 @@ export default defineConfig({
     seed: 'tsx ./prisma/seed.ts',
   },
   datasource: {
-    provider: "sqlite",
-    url: process.env["DATABASE_URL"] || "file:./dev.db",
+    provider: "postgresql",
+    url: process.env["DATABASE_URL"],
   },
 });

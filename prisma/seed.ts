@@ -1,9 +1,9 @@
 import { PrismaClient } from '@prisma/client'
-import { PrismaLibSql } from '@prisma/adapter-libsql'
+import { PrismaNeon } from '@prisma/adapter-neon'
+import { Pool } from '@neondatabase/serverless'
 
-const adapter = new PrismaLibSql({
-  url: process.env.DATABASE_URL || 'file:./dev.db',
-})
+const pool = new Pool({ connectionString: process.env.DATABASE_URL })
+const adapter = new PrismaNeon(pool)
 
 const prisma = new PrismaClient({ adapter })
 
