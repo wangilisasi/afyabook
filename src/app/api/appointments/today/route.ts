@@ -82,10 +82,10 @@ export async function GET(request: NextRequest) {
       )
     }
 
-    // Get today's date (start and end of day)
-    const today = new Date()
-    const startOfDay = new Date(today.getFullYear(), today.getMonth(), today.getDate(), 0, 0, 0)
-    const endOfDay = new Date(today.getFullYear(), today.getMonth(), today.getDate(), 23, 59, 59, 999)
+    // Get today's date in Tanzania timezone (EAT = UTC+3)
+    const tanzaniaTime = new Date(new Date().toLocaleString('en-US', { timeZone: 'Africa/Dar_es_Salaam' }))
+    const startOfDay = new Date(tanzaniaTime.getFullYear(), tanzaniaTime.getMonth(), tanzaniaTime.getDate(), 0, 0, 0)
+    const endOfDay = new Date(tanzaniaTime.getFullYear(), tanzaniaTime.getMonth(), tanzaniaTime.getDate(), 23, 59, 59, 999)
 
     // Build where clause using Prisma types
     const whereClause: Prisma.AppointmentWhereInput = {
@@ -226,7 +226,7 @@ export async function GET(request: NextRequest) {
         cancelled: summary.cancelled
       },
       clinicId: clinicId,
-      date: format(today, 'yyyy-MM-dd'),
+      date: format(tanzaniaTime, 'yyyy-MM-dd'),
       filters: {
         status: statusFilter || null,
         staffId: staffIdFilter || null

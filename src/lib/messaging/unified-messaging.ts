@@ -4,7 +4,7 @@
  */
 
 import { SmsType } from '@prisma/client'
-import { sendSMS, isTwilioConfigured } from './sms-service'
+import { sendSMS, isTwilioConfigured } from '../sms/sms-service'
 import { 
   sendWhatsAppMessage, 
   sendAppointmentConfirmationWhatsApp, 

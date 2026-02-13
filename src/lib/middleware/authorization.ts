@@ -1,5 +1,3 @@
-import { Prisma } from '@prisma/client'
-
 // Authorization context - set per request
 export interface AuthContext {
   userId?: string
@@ -23,8 +21,9 @@ export function getAuthContext(): AuthContext | undefined {
   return authContext.getStore()
 }
 
-// Authorization middleware for Prisma
-export const authorizationMiddleware: Prisma.Middleware = async (params, next) => {
+// Authorization middleware for Prisma (legacy middleware type)
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export const authorizationMiddleware = async (params: any, next: (params: any) => Promise<any>) => {
   const context = getAuthContext()
   
   // If no context, proceed without filtering (be careful with this!)
@@ -41,9 +40,11 @@ export const authorizationMiddleware: Prisma.Middleware = async (params, next) =
 }
 
 function applyAuthorizationFilters(
-  params: Prisma.MiddlewareParams,
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  params: any,
   context: AuthContext
-): Prisma.MiddlewareParams {
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+): any {
   const { userRole, clinicId, userId } = context
 
   // Admins can see everything
@@ -113,8 +114,8 @@ function applyAuthorizationFilters(
       break
 
     case 'Clinic':
-      // Staff see only their clinic
-      if (clinicId && userRole !== 'admin') {
+      // Staff see only their clinic (admins already returned above)
+      if (clinicId) {
         newParams.args.where = {
           ...newParams.args.where,
           id: clinicId

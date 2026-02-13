@@ -104,7 +104,11 @@ export default function QuickBookClient({
     setError('')
     
     try {
-      const response = await fetch(`/api/patients/lookup?phone=${encodeURIComponent(phone.trim())}`)
+      const response = await fetch('/api/patients/lookup', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ phone: phone.trim() })
+      })
       const data = await response.json()
       
       if (data.patient) {
@@ -130,20 +134,19 @@ export default function QuickBookClient({
     setError('')
     
     try {
-      const response = await fetch('/api/patients', {
+      const response = await fetch('/api/patients/lookup', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          phoneNumber: phone.trim(),
-          firstName: newPatientName.trim().split(' ')[0],
-          lastName: newPatientName.trim().split(' ').slice(1).join(' ') || ''
+          phone: phone.trim(),
+          name: newPatientName.trim()
         })
       })
       
       const data = await response.json()
       
       if (response.ok) {
-        setPatient(data)
+        setPatient(data.patient)
         setCurrentStep('service')
       } else {
         setError(data.error || 'Failed to create patient')
@@ -166,10 +169,10 @@ export default function QuickBookClient({
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          slotId: selectedSlot.id,
-          patientId: patient.id,
-          clinicId,
-          appointmentType: serviceType
+          slot_id: selectedSlot.id,
+          patient_id: patient.id,
+          clinic_id: clinicId,
+          appointment_type: serviceType
         })
       })
       

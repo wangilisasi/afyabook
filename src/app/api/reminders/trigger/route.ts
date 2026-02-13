@@ -42,7 +42,10 @@ import { sendSMS, isTwilioConfigured } from '@/lib/sms/sms-service'
 import { generateMessageContent, mapMessageTypeToSmsType } from '@/lib/sms/message-templates'
 import { format, addHours, startOfDay, endOfDay } from 'date-fns'
 
-const SECRET_KEY = process.env.REMINDERS_SECRET_KEY || 'dev-secret-key-change-in-production'
+const SECRET_KEY = process.env.REMINDERS_SECRET_KEY
+if (!SECRET_KEY) {
+  console.error('REMINDERS_SECRET_KEY environment variable is not set')
+}
 
 export async function POST(request: NextRequest) {
   try {

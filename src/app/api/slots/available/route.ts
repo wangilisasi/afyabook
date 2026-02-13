@@ -113,22 +113,18 @@ export async function GET(request: NextRequest) {
       query = query.eq('staff.specialization', serviceType)
     }
 
-    // If it's today, filter out past times
-    const isToday = requestedDate.toDateString() === today.toDateString()
+    // If it's today, filter out past times (using Tanzania timezone EAT = UTC+3)
+    const tanzaniaTime = new Date(new Date().toLocaleString('en-US', { timeZone: 'Africa/Dar_es_Salaam' }))
+    const isToday = requestedDate.toDateString() === tanzaniaTime.toDateString()
     
     if (isToday) {
-      const currentTime = new Date().toLocaleTimeString('en-US', { 
-        hour12: false, 
-        hour: '2-digit', 
-        minute: '2-digit' 
-      })
-      
       // Only show slots that start after current time + 15 minutes buffer
-      const bufferTime = new Date(Date.now() + 15 * 60000)
+      const bufferTime = new Date(tanzaniaTime.getTime() + 15 * 60000)
       const cutoffTime = bufferTime.toLocaleTimeString('en-US', { 
         hour12: false, 
         hour: '2-digit', 
-        minute: '2-digit' 
+        minute: '2-digit',
+        timeZone: 'Africa/Dar_es_Salaam'
       })
       
       query = query.gt('start_time', cutoffTime)

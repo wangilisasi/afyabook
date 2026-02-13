@@ -114,7 +114,7 @@ export default function TodayClient({ clinicId, slots, stats, selectedDate }: To
 
     try {
       const response = await fetch(`/api/appointments/${appointmentId}/status`, {
-        method: 'PATCH',
+        method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ status })
       })

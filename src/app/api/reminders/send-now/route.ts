@@ -67,7 +67,10 @@ import { generateMessageContent, mapMessageTypeToSmsType } from '@/lib/sms/messa
 import { addHours, startOfDay, endOfDay } from 'date-fns'
 
 // Configuration
-const SECRET_KEY = process.env.REMINDERS_SECRET_KEY || 'dev-secret-key-change-in-production'
+const SECRET_KEY = process.env.REMINDERS_SECRET_KEY
+if (!SECRET_KEY) {
+  console.error('REMINDERS_SECRET_KEY environment variable is not set')
+}
 const TZ_OFFSET_HOURS = 3 // Tanzania is UTC+3
 
 /**

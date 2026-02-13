@@ -148,7 +148,7 @@ async function updateCronLog(
  * Find appointments needing 24-hour reminders
  * Criteria: reminder_24h_sent = false AND appointment_time is between 23-25 hours from now
  */
-async function find24HourReminders(): Promise<AppointmentWithDetails[]> {
+async function find24HourReminders() {
   const now = new Date()
   const windowStart = new Date(now.getTime() + (REMINDER_24H_WINDOW.min * 60 * 60 * 1000))
   const windowEnd = new Date(now.getTime() + (REMINDER_24H_WINDOW.max * 60 * 60 * 1000))
@@ -216,7 +216,7 @@ async function find24HourReminders(): Promise<AppointmentWithDetails[]> {
  * Find appointments needing same-day reminders
  * Criteria: reminder_same_day_sent = false AND appointment is 2-4 hours away AND date is today
  */
-async function findSameDayReminders(): Promise<AppointmentWithDetails[]> {
+async function findSameDayReminders() {
   const now = new Date()
   const windowStart = new Date(now.getTime() + (REMINDER_SAME_DAY_WINDOW.min * 60 * 60 * 1000))
   const windowEnd = new Date(now.getTime() + (REMINDER_SAME_DAY_WINDOW.max * 60 * 60 * 1000))
@@ -305,10 +305,10 @@ async function sendReminder(
     appointment: {
       date: slot.slotDate.toISOString().split('T')[0],
       time: slot.startTime,
-      doctorName: `Dr. ${slot.staff.firstName} ${slot.staff.lastName}`,
-      doctorRole: slot.staff.role,
+      doctorName: slot.staff ? `Dr. ${slot.staff.firstName} ${slot.staff.lastName}` : 'Doctor',
+      doctorRole: slot.staff?.role ?? 'doctor',
       clinicName: clinic.name,
-      clinicPhone: clinic.phoneNumber,
+      clinicPhone: clinic.phoneNumber ?? '',
       address: clinic.address || undefined
     }
   })
@@ -386,7 +386,39 @@ async function sendReminder(
 }
 
 // Type definition for appointment with included relations
-type AppointmentWithDetails = Awaited<ReturnType<typeof find24HourReminders>>[number]
+type AppointmentWithDetails = {
+  id: string
+  status: string
+  reminder24hSent: boolean
+  reminder24hFailed: boolean
+  reminderSameDaySent: boolean
+  reminderSameDayFailed: boolean
+  patient: {
+    id: string
+    firstName: string
+    lastName: string
+    phoneNumber: string
+    language: string
+  }
+  slot: {
+    id: string
+    slotDate: Date
+    startTime: string
+    staff: {
+      id: string
+      firstName: string
+      lastName: string
+      role: string
+    } | null
+  }
+  clinic: {
+    id: string
+    name: string
+    phoneNumber: string | null
+    address: string | null
+  }
+  [key: string]: unknown
+}
 
 /**
  * Main cron handler
@@ -429,7 +461,7 @@ export async function GET(request: NextRequest) {
 
     const allAppointments = [...appointments24h, ...appointmentsSameDay]
     const uniqueAppointments = Array.from(
-      new Map(allAppointments.map(apt => [apt.id, apt])).values()
+      new Map(allAppointments.map((apt: AppointmentWithDetails) => [apt.id, apt])).values()
     )
 
     console.log(`[CRON] Found ${appointments24h.length} 24h reminders, ${appointmentsSameDay.length} same-day reminders`)
@@ -447,7 +479,7 @@ export async function GET(request: NextRequest) {
     }> = []
 
     for (const appointment of uniqueAppointments) {
-      const is24h = appointments24h.some(apt => apt.id === appointment.id)
+      const is24h = appointments24h.some((apt: AppointmentWithDetails) => apt.id === appointment.id)
       const type = is24h ? '24h' : 'same_day'
 
       const result = await sendReminder(appointment, type)
