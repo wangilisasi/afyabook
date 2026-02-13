@@ -16,15 +16,16 @@ datasource db {
 // penetration is low in Tanzania. One patient can visit multiple clinics.
 
 model Patient {
-  id          String   @id @default(uuid())
-  phoneNumber String   @unique @map("phone_number") // E.164 format: +255XXXXXXXXX
-  firstName   String   @map("first_name")
-  lastName    String   @map("last_name")
-  dateOfBirth DateTime? @map("date_of_birth") // Optional for privacy
-  gender      String? // 'M', 'F', or 'O'
-  language    String   @default("sw") // 'sw' (Swahili), 'en' (English)
-  createdAt   DateTime @default(now()) @map("created_at")
-  updatedAt   DateTime @updatedAt @map("updated_at")
+  id                String   @id @default(uuid())
+  phoneNumber       String   @unique @map("phone_number") // E.164 format: +255XXXXXXXXX
+  firstName         String   @map("first_name")
+  lastName          String   @map("last_name")
+  dateOfBirth       DateTime? @map("date_of_birth") // Optional for privacy
+  gender            String? // 'M', 'F', or 'O'
+  language          String   @default("sw") // 'sw' (Swahili), 'en' (English)
+  preferredChannel  String   @default("SMS") @map("preferred_channel") // 'SMS', 'WHATSAPP', or 'BOTH'
+  createdAt         DateTime @default(now()) @map("created_at")
+  updatedAt         DateTime @updatedAt @map("updated_at")
 
   // Relations
   appointments Appointment[]
@@ -246,6 +247,49 @@ enum SmsStatus {
 }
 
 // ============================================================================
+// WAITLIST
+// ============================================================================
+// Queue for patients when slots are full. Automatically fills cancellations.
+
+model Waitlist {
+  id                String   @id @default(uuid())
+  patientId         String   @map("patient_id")
+  clinicId          String   @map("clinic_id")
+  preferredDate     DateTime @map("preferred_date") // Date patient wants
+  preferredTimeSlot String?  @map("preferred_time_slot") // e.g., 'morning', 'afternoon', or specific time
+  appointmentType   String   @default("general") @map("appointment_type")
+  staffId           String?  @map("staff_id") // Preferred doctor (optional)
+  priority          Int      @default(0) // Higher = more urgent
+  status            WaitlistStatus @default(WAITING)
+  notes             String?  // Reason for visit or special requests
+  filledAt          DateTime? @map("filled_at")
+  filledSlotId      String?  @map("filled_slot_id")
+  notifiedAt        DateTime? @map("notified_at")
+  createdAt         DateTime @default(now()) @map("created_at")
+  updatedAt         DateTime @updatedAt @map("updated_at")
+
+  // Relations
+  patient Patient         @relation(fields: [patientId], references: [id], onDelete: Cascade)
+  clinic  Clinic          @relation(fields: [clinicId], references: [id], onDelete: Cascade)
+  staff   Staff?          @relation(fields: [staffId], references: [id], onDelete: SetNull)
+  filledSlot AppointmentSlot? @relation(fields: [filledSlotId], references: [id], onDelete: SetNull)
+
+  @@index([clinicId, status, preferredDate]) // Find waiting patients by clinic and date
+  @@index([patientId])                       // Patient waitlist history
+  @@index([status, priority])                // Process by priority
+  @@index([createdAt])                       // Recent waitlist entries
+  @@map("waitlist")
+}
+
+enum WaitlistStatus {
+  WAITING    // Patient is waiting for a slot
+  NOTIFIED   // Slot found, patient notified
+  CONFIRMED  // Patient confirmed they will take the slot
+  EXPIRED    // Patient didn't respond in time
+  CANCELLED  // Patient cancelled their waitlist entry
+}
+
+// ============================================================================
 // CRON LOGS
 // ============================================================================
 // Monitoring and audit trail for automated cron jobs. Tracks each run,
@@ -257,24 +301,24 @@ model CronLog {
   startedAt       DateTime   @map("started_at")
   completedAt     DateTime?  @map("completed_at")
   status          CronStatus @default(RUNNING)
-  
+
   // Execution details
   appointmentsChecked   Int      @default(0) @map("appointments_checked")
   remindersSent         Int      @default(0) @map("reminders_sent")
   remindersFailed       Int      @default(0) @map("reminders_failed")
   retriesAttempted      Int      @default(0) @map("retries_attempted")
-  
+
   // Error tracking
   errorMessage    String?    @map("error_message")
   errorStack      String?    @map("error_stack")
-  
+
   // Performance metrics
   durationMs      Int?       @map("duration_ms")
-  
+
   // Request metadata (for debugging)
   requestId       String?    @map("request_id") // Vercel cron request ID
   triggeredBy     String     @default("cron") @map("triggered_by") // 'cron' | 'manual' | 'test'
-  
+
   createdAt       DateTime   @default(now()) @map("created_at")
 
   @@index([jobName, startedAt])     // Recent runs by job
