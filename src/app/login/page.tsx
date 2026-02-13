@@ -29,7 +29,9 @@ export default function LoginPage() {
       })
 
       if (response.ok) {
-        router.push(`/dashboard/${clinicId}/today`)
+        const data = await response.json()
+        const dashboardClinicId = data?.clinicId || clinicId
+        router.push(`/dashboard/${dashboardClinicId}/today`)
       } else {
         const data = await response.json()
         setError(data.error || 'Ukomeshaji sio sahihi / Invalid credentials')

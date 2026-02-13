@@ -13,8 +13,10 @@ const globalForPrisma = global as unknown as { prisma: PrismaClient }
 const adapter = new PrismaNeon({ connectionString: process.env.DATABASE_URL })
 export const prisma = globalForPrisma.prisma || new PrismaClient({ adapter })
 
-// Apply authorization middleware
-prisma.$use(authorizationMiddleware)
+// Apply authorization middleware when supported by the Prisma client runtime
+if ("$use" in prisma && typeof prisma.$use === "function") {
+	prisma.$use(authorizationMiddleware)
+}
 
 if (process.env.NODE_ENV !== 'production') globalForPrisma.prisma = prisma
 

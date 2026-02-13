@@ -30,6 +30,7 @@ model Patient {
   // Relations
   appointments Appointment[]
   smsLogs      SmsLog[]
+  waitlist     Waitlist[]
 
   @@index([phoneNumber]) // Fast lookup by phone
   @@index([createdAt])   // For recent patient queries
@@ -67,6 +68,7 @@ model Clinic {
   slots        AppointmentSlot[]
   appointments Appointment[]
   smsLogs      SmsLog[]
+  waitlist     Waitlist[]
 
   @@index([region])      // Filter by region
   @@index([isActive])    // Active clinic queries
@@ -95,6 +97,7 @@ model Staff {
   // Relations
   clinic Clinic @relation(fields: [clinicId], references: [id], onDelete: Cascade)
   slots  AppointmentSlot[]
+  waitlist Waitlist[]
 
   @@index([clinicId])    // Staff by clinic
   @@index([role])        // Filter by role
@@ -123,6 +126,7 @@ model AppointmentSlot {
   clinic      Clinic       @relation(fields: [clinicId], references: [id], onDelete: Cascade)
   staff       Staff        @relation(fields: [staffId], references: [id], onDelete: Cascade)
   appointment Appointment?
+  waitlistFilled Waitlist[]
 
   @@index([clinicId, slotDate])      // Find slots by clinic and date
   @@index([staffId, slotDate])       // Find slots by staff and date
