@@ -137,31 +137,47 @@ model AppointmentSlot {
 // booking through completion or cancellation.
 
 model Appointment {
-  id                String           @id @default(uuid())
-  slotId            String           @unique @map("slot_id")
-  patientId         String           @map("patient_id")
-  clinicId          String           @map("clinic_id")
-  status            AppointmentStatus @default(BOOKED)
-  appointmentType   String           @default("general") @map("appointment_type") // 'general', 'followup', 'emergency'
-  notes             String?          // Reason for visit or doctor notes
-  reminderSent      Boolean          @default(false) @map("reminder_sent")
-  reminderSentAt    DateTime?        @map("reminder_sent_at")
-  checkedInAt       DateTime?        @map("checked_in_at")
-  completedAt       DateTime?        @map("completed_at")
-  cancelledAt       DateTime?        @map("cancelled_at")
-  cancellationReason String?         @map("cancellation_reason")
-  createdAt         DateTime         @default(now()) @map("created_at")
-  updatedAt         DateTime         @updatedAt @map("updated_at")
+  id                      String           @id @default(uuid())
+  slotId                  String           @unique @map("slot_id")
+  patientId               String           @map("patient_id")
+  clinicId                String           @map("clinic_id")
+  status                  AppointmentStatus @default(BOOKED)
+  appointmentType         String           @default("general") @map("appointment_type") // 'general', 'followup', 'emergency'
+  notes                   String?          // Reason for visit or doctor notes
+  
+  // Legacy reminder fields (deprecated - kept for backwards compatibility)
+  reminderSent            Boolean          @default(false) @map("reminder_sent")
+  reminderSentAt          DateTime?        @map("reminder_sent_at")
+  
+  // New reminder system fields
+  reminder24hSent         Boolean          @default(false) @map("reminder_24h_sent")
+  reminder24hSentAt       DateTime?        @map("reminder_24h_sent_at")
+  reminder24hFailed       Boolean          @default(false) @map("reminder_24h_failed")
+  reminder24hError        String?          @map("reminder_24h_error")
+  
+  reminderSameDaySent     Boolean          @default(false) @map("reminder_same_day_sent")
+  reminderSameDaySentAt   DateTime?        @map("reminder_same_day_sent_at")
+  reminderSameDayFailed   Boolean          @default(false) @map("reminder_same_day_failed")
+  reminderSameDayError    String?          @map("reminder_same_day_error")
+  
+  checkedInAt             DateTime?        @map("checked_in_at")
+  completedAt             DateTime?        @map("completed_at")
+  cancelledAt             DateTime?        @map("cancelled_at")
+  cancellationReason      String?          @map("cancellation_reason")
+  createdAt               DateTime         @default(now()) @map("created_at")
+  updatedAt               DateTime         @updatedAt @map("updated_at")
 
   // Relations
   slot    AppointmentSlot @relation(fields: [slotId], references: [id], onDelete: Restrict)
   patient Patient         @relation(fields: [patientId], references: [id], onDelete: Cascade)
   clinic  Clinic          @relation(fields: [clinicId], references: [id], onDelete: Cascade)
 
-  @@index([patientId])              // Patient appointment history
-  @@index([clinicId, status])       // Clinic appointment management
-  @@index([status])                 // Filter by status
-  @@index([createdAt])              // Recent appointments
+  @@index([patientId])                                      // Patient appointment history
+  @@index([clinicId, status])                               // Clinic appointment management
+  @@index([status])                                         // Filter by status
+  @@index([createdAt])                                      // Recent appointments
+  @@index([reminder24hSent, reminder24hFailed])            // 24h reminder queries
+  @@index([reminderSameDaySent, reminderSameDayFailed])    // Same-day reminder queries
   @@map("appointments")
 }
 
@@ -227,4 +243,51 @@ enum SmsStatus {
   DELIVERED   // Confirmed delivered to handset
   FAILED      // Failed to send
   UNDELIVERED // Rejected by carrier
+}
+
+// ============================================================================
+// CRON LOGS
+// ============================================================================
+// Monitoring and audit trail for automated cron jobs. Tracks each run,
+// success rates, and failures for operational visibility.
+
+model CronLog {
+  id              String     @id @default(uuid())
+  jobName         String     @map("job_name") // e.g., 'send-reminders'
+  startedAt       DateTime   @map("started_at")
+  completedAt     DateTime?  @map("completed_at")
+  status          CronStatus @default(RUNNING)
+  
+  // Execution details
+  appointmentsChecked   Int      @default(0) @map("appointments_checked")
+  remindersSent         Int      @default(0) @map("reminders_sent")
+  remindersFailed       Int      @default(0) @map("reminders_failed")
+  retriesAttempted      Int      @default(0) @map("retries_attempted")
+  
+  // Error tracking
+  errorMessage    String?    @map("error_message")
+  errorStack      String?    @map("error_stack")
+  
+  // Performance metrics
+  durationMs      Int?       @map("duration_ms")
+  
+  // Request metadata (for debugging)
+  requestId       String?    @map("request_id") // Vercel cron request ID
+  triggeredBy     String     @default("cron") @map("triggered_by") // 'cron' | 'manual' | 'test'
+  
+  createdAt       DateTime   @default(now()) @map("created_at")
+
+  @@index([jobName, startedAt])     // Recent runs by job
+  @@index([status])                 // Failed job queries
+  @@index([createdAt])              // Time-based reports
+  @@index([startedAt])              // Scheduling queries
+  @@map("cron_logs")
+}
+
+enum CronStatus {
+  RUNNING   // Job is currently executing
+  SUCCESS   // Completed successfully
+  PARTIAL   // Some reminders failed but job completed
+  FAILED    // Job failed completely
+  TIMEOUT   // Job timed out
 }
