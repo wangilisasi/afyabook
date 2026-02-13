@@ -1,8 +1,65 @@
 {
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "version": 2,
+  "name": "afyabook",
+  "framework": "nextjs",
+  "buildCommand": "npm run build",
+  "devCommand": "npm run dev",
+  "installCommand": "npm install",
+  "regions": ["iad1"],
   "crons": [
     {
       "path": "/api/cron/send-reminders",
       "schedule": "0 * * * *"
     }
-  ]
+  ],
+  "headers": [
+    {
+      "source": "/api/(.*)",
+      "headers": [
+        {
+          "key": "Access-Control-Allow-Origin",
+          "value": "*"
+        },
+        {
+          "key": "Access-Control-Allow-Methods",
+          "value": "GET, POST, PUT, DELETE, PATCH, OPTIONS"
+        },
+        {
+          "key": "Access-Control-Allow-Headers",
+          "value": "Content-Type, Authorization, X-Requested-With"
+        }
+      ]
+    },
+    {
+      "source": "/dashboard/(.*)",
+      "headers": [
+        {
+          "key": "Cache-Control",
+          "value": "no-store, max-age=0"
+        }
+      ]
+    }
+  ],
+  "redirects": [
+    {
+      "source": "/",
+      "destination": "/login",
+      "permanent": false
+    }
+  ],
+  "rewrites": [
+    {
+      "source": "/api/webhooks/twilio/status",
+      "destination": "/api/webhooks/twilio/sms-status"
+    }
+  ],
+  "env": {
+    "NEXT_TELEMETRY_DISABLED": "1"
+  },
+  "build": {
+    "env": {
+      "NEXT_TELEMETRY_DISABLED": "1"
+    }
+  }
 }
