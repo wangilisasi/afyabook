@@ -132,7 +132,7 @@ export async function POST(request: NextRequest) {
     }
 
     // Update SMS log
-    const updateData: any = {
+    const updateData: Record<string, unknown> = {
       status: mappedStatus || 'FAILED',
       twilioResponse: JSON.stringify({
         MessageSid: messageSid,

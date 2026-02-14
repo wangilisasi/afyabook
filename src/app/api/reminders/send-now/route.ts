@@ -65,13 +65,51 @@ import { prisma } from '@/lib/prisma'
 import { sendSMS, isTwilioConfigured } from '@/lib/sms/sms-service'
 import { generateMessageContent, mapMessageTypeToSmsType } from '@/lib/sms/message-templates'
 import { addHours, startOfDay, endOfDay } from 'date-fns'
+import { isTodayInTanzania } from '@/lib/timezone'
+import { logger } from '@/lib/logger'
+import type { Prisma } from '@prisma/client'
+
+// Type definitions for appointment with included relations
+type AppointmentWithRelations = Prisma.AppointmentGetPayload<{
+  include: {
+    patient: {
+      select: {
+        id: true
+        firstName: true
+        lastName: true
+        phoneNumber: true
+        language: true
+      }
+    }
+    slot: {
+      select: {
+        slotDate: true
+        startTime: true
+        staff: {
+          select: {
+            firstName: true
+            lastName: true
+            role: true
+          }
+        }
+      }
+    }
+    clinic: {
+      select: {
+        id: true
+        name: true
+        phoneNumber: true
+        address: true
+      }
+    }
+  }
+}>
 
 // Configuration
 const SECRET_KEY = process.env.REMINDERS_SECRET_KEY
 if (!SECRET_KEY) {
-  console.error('REMINDERS_SECRET_KEY environment variable is not set')
+  logger.error('REMINDERS_SECRET_KEY environment variable is not set')
 }
-const TZ_OFFSET_HOURS = 3 // Tanzania is UTC+3
 
 /**
  * Verify authorization
@@ -82,26 +120,6 @@ function verifyAuthorization(request: NextRequest): boolean {
   return providedSecret === SECRET_KEY
 }
 
-/**
- * Convert UTC Date to Tanzania Time (EAT - UTC+3)
- */
-function toTanzaniaTime(utcDate: Date): Date {
-  return new Date(utcDate.getTime() + (TZ_OFFSET_HOURS * 60 * 60 * 1000))
-}
-
-/**
- * Check if a date is "today" in Tanzania timezone
- */
-function isTodayInTanzania(utcDate: Date): boolean {
-  const tzNow = toTanzaniaTime(new Date())
-  const tzDate = toTanzaniaTime(utcDate)
-  
-  return (
-    tzDate.getFullYear() === tzNow.getFullYear() &&
-    tzDate.getMonth() === tzNow.getMonth() &&
-    tzDate.getDate() === tzNow.getDate()
-  )
-}
 
 /**
  * Find appointments needing 24-hour reminders
@@ -233,7 +251,7 @@ async function findSameDayReminders(force: boolean = false) {
  * Send reminder for a specific appointment
  */
 async function sendReminder(
-  appointment: any,
+  appointment: AppointmentWithRelations,
   type: '24h' | 'same_day',
   dryRun: boolean,
   force: boolean
@@ -279,7 +297,7 @@ async function sendReminder(
 
   // Dry run - just log
   if (dryRun) {
-    console.log(`[MANUAL] DRY RUN - Would send ${type} reminder:`, {
+    logger.info(`[MANUAL] DRY RUN - Would send ${type} reminder`, {
       to: patient.phoneNumber,
       message: messageContent.primary.substring(0, 50) + '...'
     })
@@ -459,8 +477,8 @@ export async function POST(request: NextRequest) {
       else failed++
     } else {
       // Find appointments based on type filter
-      let appointments24h: any[] = []
-      let appointmentsSameDay: any[] = []
+      let appointments24h: AppointmentWithRelations[] = []
+      let appointmentsSameDay: AppointmentWithRelations[] = []
 
       if (reminderType === '24h' || reminderType === 'all' || !reminderType) {
         appointments24h = await find24HourReminders(force)
@@ -545,7 +563,7 @@ export async function POST(request: NextRequest) {
     const duration = Date.now() - startTime
     const errorMessage = error instanceof Error ? error.message : 'Unknown error'
 
-    console.error('[MANUAL] Error sending reminders:', errorMessage)
+    logger.error('[MANUAL] Error sending reminders', { error: errorMessage })
 
     return NextResponse.json(
       {

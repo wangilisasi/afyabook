@@ -15,11 +15,39 @@ const WHATSAPP_PHONE_NUMBER_ID = process.env.WHATSAPP_PHONE_NUMBER_ID
 const WHATSAPP_ACCESS_TOKEN = process.env.WHATSAPP_ACCESS_TOKEN
 const WHATSAPP_BUSINESS_ACCOUNT_ID = process.env.WHATSAPP_BUSINESS_ACCOUNT_ID
 
+// WhatsApp template component parameter type
+interface WhatsAppComponentParameter {
+  type: 'text' | 'currency' | 'date_time' | 'image' | 'document'
+  text?: string
+  currency?: {
+    code: string
+    amount_1000: number
+  }
+  date_time?: {
+    fallback_value: string
+  }
+  image?: {
+    link: string
+  }
+  document?: {
+    link: string
+    filename: string
+  }
+}
+
+// WhatsApp template component type
+interface WhatsAppTemplateComponent {
+  type: 'header' | 'body' | 'button'
+  parameters?: WhatsAppComponentParameter[]
+  sub_type?: 'url' | 'quick_reply'
+  index?: number
+}
+
 interface SendWhatsAppParams {
   to: string
   templateName: string
   languageCode: string
-  components: any[]
+  components: WhatsAppTemplateComponent[]
   patientId?: string
   clinicId?: string
   appointmentId?: string
@@ -145,7 +173,8 @@ export async function sendWhatsAppMessage(
       messageId: data.messages?.[0]?.id
     }
 
-  } catch (error: any) {
+  } catch (error) {
+    const err = error as { code?: string; message: string }
     console.error('WhatsApp API error:', error)
 
     // Update log to FAILED
@@ -153,16 +182,16 @@ export async function sendWhatsAppMessage(
       where: { id: whatsAppLogId },
       data: {
         status: 'FAILED',
-        errorCode: error.code || 'UNKNOWN',
-        errorMessage: error.message,
-        twilioResponse: JSON.stringify({ error: error.message })
+        errorCode: err.code || 'UNKNOWN',
+        errorMessage: err.message,
+        twilioResponse: JSON.stringify({ error: err.message })
       }
     })
 
     return {
       success: false,
-      error: error.message,
-      errorCode: error.code
+      error: err.message,
+      errorCode: err.code
     }
   }
 }
@@ -182,7 +211,7 @@ export async function sendAppointmentConfirmationWhatsApp(params: {
   clinicId?: string
   appointmentId?: string
 }): Promise<SendWhatsAppResult> {
-  const components = [
+  const components: WhatsAppTemplateComponent[] = [
     {
       type: 'body',
       parameters: [
@@ -227,7 +256,7 @@ export async function sendReminderWhatsApp(params: {
     ? 'appointment_reminder_same_day_sw' 
     : 'appointment_reminder_24h_sw'
 
-  const components = [
+  const components: WhatsAppTemplateComponent[] = [
     {
       type: 'body',
       parameters: [
@@ -253,10 +282,22 @@ export async function sendReminderWhatsApp(params: {
 }
 
 /**
+ * WhatsApp message template type
+ */
+interface WhatsAppMessageTemplate {
+  id: string
+  name: string
+  status: string
+  category: string
+  language: string
+  components: WhatsAppTemplateComponent[]
+}
+
+/**
  * Get WhatsApp message templates
  * Must be pre-approved by Meta
  */
-export async function getMessageTemplates(): Promise<any[]> {
+export async function getMessageTemplates(): Promise<WhatsAppMessageTemplate[]> {
   if (!isWhatsAppConfigured()) {
     return []
   }
@@ -272,7 +313,7 @@ export async function getMessageTemplates(): Promise<any[]> {
     )
 
     const data = await response.json()
-    return data.data || []
+    return (data.data || []) as WhatsAppMessageTemplate[]
   } catch (error) {
     console.error('Failed to fetch WhatsApp templates:', error)
     return []

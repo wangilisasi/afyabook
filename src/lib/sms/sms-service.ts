@@ -6,22 +6,18 @@
 import twilio from 'twilio'
 import { prisma } from '@/lib/prisma'
 import { SmsType, SmsStatus } from '@prisma/client'
+import type { Prisma } from '@prisma/client'
+import { SMS_COST_USD } from '@/lib/constants'
+import { logger } from '@/lib/logger'
 
 // Initialize Twilio client
 const accountSid = process.env.TWILIO_ACCOUNT_SID
 const authToken = process.env.TWILIO_AUTH_TOKEN
 const fromPhoneNumber = process.env.TWILIO_PHONE_NUMBER
 
-if (!accountSid || !authToken || !fromPhoneNumber) {
-  console.error('Missing Twilio environment variables')
-}
-
 const twilioClient = accountSid && authToken 
   ? twilio(accountSid, authToken)
   : null
-
-// SMS Cost estimation (approximate rates for Tanzania)
-const SMS_COST_USD = 0.02 // $0.02 per message to Tanzania
 
 interface SendSMSParams {
   to: string
@@ -83,7 +79,7 @@ export async function sendSMS(params: SendSMSParams): Promise<SendSMSResult> {
     })
     smsLogId = smsLog.id
   } catch (error) {
-    console.error('Failed to create SMS log:', error)
+    logger.error('Failed to create SMS log', { error: error instanceof Error ? error.message : String(error) })
     return {
       success: false,
       error: 'Failed to log SMS attempt',
@@ -133,15 +129,16 @@ export async function sendSMS(params: SendSMSParams): Promise<SendSMSResult> {
       cost: SMS_COST_USD
     }
 
-  } catch (error: any) {
+  } catch (error) {
     // Handle Twilio errors
-    const errorCode = error.code || 'UNKNOWN'
-    const errorMessage = getTwilioErrorMessage(errorCode, error.message)
+    const err = error as { code?: string; message: string }
+    const errorCode = err.code || 'UNKNOWN'
+    const errorMessage = getTwilioErrorMessage(errorCode, err.message)
 
-    console.error('Twilio SMS error:', {
+    logger.error('Twilio SMS error', {
       code: errorCode,
-      message: error.message,
-      to: to
+      message: err.message,
+      to
     })
 
     // Update SMS log to FAILED
@@ -152,9 +149,9 @@ export async function sendSMS(params: SendSMSParams): Promise<SendSMSResult> {
         errorCode: errorCode,
         errorMessage: errorMessage,
         twilioResponse: JSON.stringify({
-          error: error.message,
+          error: err.message,
           code: errorCode,
-          moreInfo: error.moreInfo
+          moreInfo: (err as { moreInfo?: string }).moreInfo
         })
       }
     })
@@ -210,7 +207,7 @@ export async function updateSMSStatus(
     // Map Twilio status to our SmsStatus enum
     const mappedStatus = mapTwilioStatus(status)
 
-    const updateData: any = {
+    const updateData: Record<string, unknown> = {
       status: mappedStatus
     }
 
@@ -228,9 +225,9 @@ export async function updateSMSStatus(
       data: updateData
     })
 
-    console.log(`SMS ${messageSid} status updated to ${mappedStatus}`)
+    logger.info(`SMS ${messageSid} status updated to ${mappedStatus}`)
   } catch (error) {
-    console.error('Failed to update SMS status:', error)
+    logger.error('Failed to update SMS status', { error: error instanceof Error ? error.message : String(error) })
   }
 }
 
@@ -266,7 +263,7 @@ export async function getSMSStats(
   startDate?: Date,
   endDate?: Date
 ) {
-  const whereClause: any = {
+  const whereClause: Prisma.SmsLogWhereInput = {
     clinicId: clinicId
   }
 

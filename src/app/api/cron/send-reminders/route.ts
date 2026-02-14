@@ -31,13 +31,14 @@ import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { sendSMS, isTwilioConfigured } from '@/lib/sms/sms-service'
 import { generateMessageContent, mapMessageTypeToSmsType } from '@/lib/sms/message-templates'
-import { CronStatus, Prisma } from '@prisma/client'
+import { CronStatus } from '@prisma/client'
+import { isTodayInTanzania } from '@/lib/timezone'
+import { REMINDER_24H_WINDOW_MIN, REMINDER_24H_WINDOW_MAX, REMINDER_SAME_DAY_WINDOW_MIN, REMINDER_SAME_DAY_WINDOW_MAX, MAX_SMS_RETRIES, DEFAULT_RETRY_DELAY_MS } from '@/lib/constants'
+import { logger } from '@/lib/logger'
 
-// Configuration
-const TZ_OFFSET_HOURS = 3 // Tanzania is UTC+3
-const REMINDER_24H_WINDOW = { min: 23, max: 25 } // Hours before appointment
-const REMINDER_SAME_DAY_WINDOW = { min: 2, max: 4 } // Hours before appointment
-const MAX_RETRIES = 1 // Retry failed sends once
+// Reminder windows configuration
+const REMINDER_24H_WINDOW = { min: REMINDER_24H_WINDOW_MIN, max: REMINDER_24H_WINDOW_MAX }
+const REMINDER_SAME_DAY_WINDOW = { min: REMINDER_SAME_DAY_WINDOW_MIN, max: REMINDER_SAME_DAY_WINDOW_MAX }
 
 /**
  * Verify request is from Vercel Cron
@@ -52,7 +53,7 @@ function verifyVercelCron(request: NextRequest): boolean {
   if (!authHeader) {
     // In development, allow without header if CRON_SECRET is not set
     if (process.env.NODE_ENV === 'development' && !process.env.CRON_SECRET) {
-      console.warn('[CRON] Running in development mode without CRON_SECRET')
+      logger.warn('[CRON] Running in development mode without CRON_SECRET')
       return true
     }
     return false
@@ -61,41 +62,13 @@ function verifyVercelCron(request: NextRequest): boolean {
   // Verify against our secret
   const expectedToken = `Bearer ${process.env.CRON_SECRET}`
   if (process.env.CRON_SECRET && authHeader !== expectedToken) {
-    console.error('[CRON] Invalid authorization header')
+    logger.error('[CRON] Invalid authorization header')
     return false
   }
 
   return true
 }
 
-/**
- * Convert UTC Date to Tanzania Time (EAT - UTC+3)
- * Tanzania does not observe daylight saving time
- */
-function toTanzaniaTime(utcDate: Date): Date {
-  return new Date(utcDate.getTime() + (TZ_OFFSET_HOURS * 60 * 60 * 1000))
-}
-
-/**
- * Convert Tanzania Time to UTC
- */
-function fromTanzaniaTime(tzDate: Date): Date {
-  return new Date(tzDate.getTime() - (TZ_OFFSET_HOURS * 60 * 60 * 1000))
-}
-
-/**
- * Check if a date is "today" in Tanzania timezone
- */
-function isTodayInTanzania(utcDate: Date): boolean {
-  const tzNow = toTanzaniaTime(new Date())
-  const tzDate = toTanzaniaTime(utcDate)
-  
-  return (
-    tzDate.getFullYear() === tzNow.getFullYear() &&
-    tzDate.getMonth() === tzNow.getMonth() &&
-    tzDate.getDate() === tzNow.getDate()
-  )
-}
 
 /**
  * Create a new cron log entry
@@ -356,9 +329,8 @@ async function sendReminder(
     const errorMessage = error instanceof Error ? error.message : 'Unknown error'
     
     // Retry if we haven't exceeded max retries
-    if (retryCount < MAX_RETRIES) {
-      console.log(`[CRON] Retrying ${type} reminder for appointment ${appointment.id} (attempt ${retryCount + 1})`)
-      await new Promise(resolve => setTimeout(resolve, 1000)) // Wait 1 second before retry
+    if (retryCount < MAX_SMS_RETRIES) {
+      await new Promise(resolve => setTimeout(resolve, DEFAULT_RETRY_DELAY_MS))
       return sendReminder(appointment, type, retryCount + 1)
     }
 
@@ -451,7 +423,7 @@ export async function GET(request: NextRequest) {
 
     // Create cron log entry
     cronLogId = await createCronLog('cron')
-    console.log(`[CRON] Starting reminder job ${cronLogId} at ${new Date().toISOString()}`)
+    logger.info(`[CRON] Starting reminder job ${cronLogId} at ${new Date().toISOString()}`)
 
     // Find appointments needing reminders
     const [appointments24h, appointmentsSameDay] = await Promise.all([
@@ -464,7 +436,7 @@ export async function GET(request: NextRequest) {
       new Map(allAppointments.map((apt: AppointmentWithDetails) => [apt.id, apt])).values()
     )
 
-    console.log(`[CRON] Found ${appointments24h.length} 24h reminders, ${appointmentsSameDay.length} same-day reminders`)
+    logger.info(`[CRON] Found ${appointments24h.length} 24h reminders, ${appointmentsSameDay.length} same-day reminders`)
 
     // Send reminders
     let sent = 0
@@ -522,7 +494,7 @@ export async function GET(request: NextRequest) {
       })
     }
 
-    console.log(`[CRON] Job ${cronLogId} completed: ${sent} sent, ${failed} failed, ${duration}ms`)
+    logger.info(`[CRON] Job ${cronLogId} completed`, { sent, failed, duration })
 
     // Calculate next run (top of next hour)
     const nextRun = new Date()
@@ -548,7 +520,7 @@ export async function GET(request: NextRequest) {
     const errorMessage = error instanceof Error ? error.message : 'Unknown error'
     const errorStack = error instanceof Error ? error.stack : undefined
 
-    console.error('[CRON] Job failed:', errorMessage)
+    logger.error('[CRON] Job failed', { error: errorMessage })
 
     // Update cron log with failure
     if (cronLogId) {

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { Prisma } from '@prisma/client'
 import { format } from 'date-fns'
+import { calculateDuration } from '@/lib/date-utils'
 
 /**
  * GET /api/appointments/today
@@ -246,15 +247,3 @@ export async function GET(request: NextRequest) {
   }
 }
 
-/**
- * Calculate duration between two times in minutes
- */
-function calculateDuration(startTime: string, endTime: string): number {
-  const [startHour, startMin] = startTime.split(':').map(Number)
-  const [endHour, endMin] = endTime.split(':').map(Number)
-  
-  const startMinutes = startHour * 60 + startMin
-  const endMinutes = endHour * 60 + endMin
-  
-  return endMinutes - startMinutes
-}

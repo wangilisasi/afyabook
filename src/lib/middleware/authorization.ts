@@ -1,3 +1,6 @@
+import { AsyncLocalStorage } from 'async_hooks'
+import { Prisma } from '@prisma/client'
+
 // Authorization context - set per request
 export interface AuthContext {
   userId?: string
@@ -7,8 +10,6 @@ export interface AuthContext {
 }
 
 // AsyncLocalStorage to maintain context across async operations
-import { AsyncLocalStorage } from 'async_hooks'
-
 export const authContext = new AsyncLocalStorage<AuthContext>()
 
 // Helper to run code with auth context
@@ -21,9 +22,23 @@ export function getAuthContext(): AuthContext | undefined {
   return authContext.getStore()
 }
 
+// Prisma middleware parameters type with generic where clause
+interface MiddlewareParams {
+  model?: Prisma.ModelName
+  action: Prisma.PrismaAction
+  args: {
+    where?: Record<string, unknown>
+    [key: string]: unknown
+  }
+  dataPath: string[]
+  runInTransaction: boolean
+}
+
 // Authorization middleware for Prisma (legacy middleware type)
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-export const authorizationMiddleware = async (params: any, next: (params: any) => Promise<any>) => {
+export const authorizationMiddleware = async (
+  params: MiddlewareParams, 
+  next: (params: MiddlewareParams) => Promise<unknown>
+): Promise<unknown> => {
   const context = getAuthContext()
   
   // If no context, proceed without filtering (be careful with this!)
@@ -40,11 +55,9 @@ export const authorizationMiddleware = async (params: any, next: (params: any) =
 }
 
 function applyAuthorizationFilters(
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  params: any,
+  params: MiddlewareParams,
   context: AuthContext
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-): any {
+): MiddlewareParams {
   const { userRole, clinicId, userId } = context
 
   // Admins can see everything

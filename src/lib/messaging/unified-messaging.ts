@@ -27,7 +27,32 @@ interface SendMessageParams {
   // WhatsApp template params
   templateName?: string
   languageCode?: string
-  components?: any[]
+  components?: WhatsAppTemplateComponent[]
+}
+
+// WhatsApp template component type
+interface WhatsAppTemplateComponent {
+  type: 'header' | 'body' | 'button'
+  parameters?: Array<{
+    type: 'text' | 'currency' | 'date_time' | 'image' | 'document'
+    text?: string
+    currency?: {
+      code: string
+      amount_1000: number
+    }
+    date_time?: {
+      fallback_value: string
+    }
+    image?: {
+      link: string
+    }
+    document?: {
+      link: string
+      filename: string
+    }
+  }>
+  sub_type?: 'url' | 'quick_reply'
+  index?: number
 }
 
 interface SendMessageResult {

@@ -130,9 +130,10 @@ export async function GET(request: NextRequest) {
       )
     }
 
-    const whereClause: any = {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const whereClause: Record<string, unknown> = {
       clinicId,
-      status: status as any
+      status
     }
 
     if (date) {

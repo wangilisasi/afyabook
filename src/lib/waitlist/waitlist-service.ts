@@ -6,6 +6,15 @@
 import { prisma } from '@/lib/prisma'
 import { sendAppointmentConfirmation } from '@/lib/messaging/unified-messaging'
 
+// Patient type from waitlist query
+interface WaitlistPatient {
+  id: string
+  firstName: string
+  lastName: string
+  phoneNumber: string
+  preferredChannel: string
+}
+
 /**
  * Try to fill a cancelled slot from the waitlist
  * Called when an appointment is cancelled
@@ -13,7 +22,7 @@ import { sendAppointmentConfirmation } from '@/lib/messaging/unified-messaging'
 export async function tryFillFromWaitlist(
   slotId: string,
   clinicId: string
-): Promise<{ success: boolean; filled?: boolean; patient?: any; error?: string }> {
+): Promise<{ success: boolean; filled?: boolean; patient?: WaitlistPatient; error?: string }> {
   try {
     // Get the slot details
     const slot = await prisma.appointmentSlot.findUnique({
@@ -175,7 +184,7 @@ export async function tryFillFromWaitlist(
           doctorName: `Dr. ${slot.staff.firstName} ${slot.staff.lastName}`,
           clinicName: clinic.name,
           clinicPhone: clinic.phoneNumber,
-          channel: (bestMatch.patient.preferredChannel as any) || 'SMS',
+          channel: (bestMatch.patient.preferredChannel as 'SMS' | 'WHATSAPP' | 'BOTH') || 'SMS',
           patientId: bestMatch.patientId,
           clinicId,
           appointmentId: appointment.id

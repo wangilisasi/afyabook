@@ -41,6 +41,7 @@ import { prisma } from '@/lib/prisma'
 import { sendSMS, isTwilioConfigured } from '@/lib/sms/sms-service'
 import { generateMessageContent, mapMessageTypeToSmsType } from '@/lib/sms/message-templates'
 import { format, addHours, startOfDay, endOfDay } from 'date-fns'
+import type { Prisma } from '@prisma/client'
 
 const SECRET_KEY = process.env.REMINDERS_SECRET_KEY
 if (!SECRET_KEY) {
@@ -96,7 +97,7 @@ export async function POST(request: NextRequest) {
       error?: string
     }> = []
 
-    let summary = {
+    const summary = {
       totalAppointments: 0,
       remindersSent: 0,
       alreadyReminded: 0,
@@ -163,7 +164,7 @@ async function findAppointmentsNeedingReminders(
   const tomorrowEnd = endOfDay(tomorrow)
 
   // Build base query conditions
-  const whereConditions: any = {
+  const whereConditions: Prisma.AppointmentWhereInput = {
     status: {
       in: ['BOOKED', 'CONFIRMED']
     },

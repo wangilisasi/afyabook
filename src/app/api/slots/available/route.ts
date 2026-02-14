@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase'
+import { calculateDuration } from '@/lib/date-utils'
+import { getCurrentTanzaniaTime, MILLISECONDS_PER_MINUTE } from '@/lib/timezone'
 
 /**
  * GET /api/slots/available
@@ -114,12 +116,12 @@ export async function GET(request: NextRequest) {
     }
 
     // If it's today, filter out past times (using Tanzania timezone EAT = UTC+3)
-    const tanzaniaTime = new Date(new Date().toLocaleString('en-US', { timeZone: 'Africa/Dar_es_Salaam' }))
+    const tanzaniaTime = getCurrentTanzaniaTime()
     const isToday = requestedDate.toDateString() === tanzaniaTime.toDateString()
     
     if (isToday) {
-      // Only show slots that start after current time + 15 minutes buffer
-      const bufferTime = new Date(tanzaniaTime.getTime() + 15 * 60000)
+      // Only show slots that start after current time + buffer
+      const bufferTime = new Date(tanzaniaTime.getTime() + 15 * MILLISECONDS_PER_MINUTE)
       const cutoffTime = bufferTime.toLocaleTimeString('en-US', { 
         hour12: false, 
         hour: '2-digit', 
@@ -178,15 +180,3 @@ export async function GET(request: NextRequest) {
   }
 }
 
-/**
- * Calculate duration between two times
- */
-function calculateDuration(startTime: string, endTime: string): number {
-  const [startHour, startMin] = startTime.split(':').map(Number)
-  const [endHour, endMin] = endTime.split(':').map(Number)
-  
-  const startMinutes = startHour * 60 + startMin
-  const endMinutes = endHour * 60 + endMin
-  
-  return endMinutes - startMinutes
-}
