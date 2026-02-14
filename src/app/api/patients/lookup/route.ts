@@ -1,6 +1,14 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { supabaseAdmin } from '@/lib/supabase'
+import { prisma } from '@/lib/prisma'
 import { validateTanzanianPhone } from '@/lib/phone-validation'
+import { validateBody } from '@/lib/validation/helpers'
+import { z } from 'zod'
+
+const PatientLookupSchema = z.object({
+  phone: z.string().min(1, 'Phone number is required'),
+  name: z.string().optional(),
+  language_preference: z.enum(['sw', 'en']).default('sw')
+})
 
 /**
  * POST /api/patients/lookup
@@ -23,9 +31,13 @@ import { validateTanzanianPhone } from '@/lib/phone-validation'
  */
 export async function POST(request: NextRequest) {
   try {
-    // Parse request body
-    const body = await request.json()
-    const { phone, name, language_preference = 'sw' } = body
+    // Validate request body
+    const validation = await validateBody(request, PatientLookupSchema)
+    if (!validation.success) {
+      return validation.error
+    }
+
+    const { phone, name, language_preference } = validation.data
 
     // Validate phone number
     const phoneValidation = validateTanzanianPhone(phone)
@@ -42,24 +54,10 @@ export async function POST(request: NextRequest) {
 
     const normalizedPhone = phoneValidation.normalized!
 
-    // Check if patient exists
-    const { data: existingPatient, error: lookupError } = await supabaseAdmin
-      .from('patients')
-      .select('*')
-      .eq('phone_number', normalizedPhone)
-      .single()
-
-    if (lookupError && lookupError.code !== 'PGRST116') {
-      // PGRST116 = no rows returned, which is expected for new patients
-      console.error('Error looking up patient:', lookupError)
-      return NextResponse.json(
-        { 
-          error: 'Hitilafu katika kutafuta mgonjwa / Error searching for patient',
-          code: 'LOOKUP_ERROR'
-        },
-        { status: 500 }
-      )
-    }
+    // Check if patient exists using Prisma
+    const existingPatient = await prisma.patient.findUnique({
+      where: { phoneNumber: normalizedPhone }
+    })
 
     // If patient exists, return them
     if (existingPatient) {
@@ -78,28 +76,14 @@ export async function POST(request: NextRequest) {
     const firstName = nameParts[0]
     const lastName = nameParts.slice(1).join(' ') || 'Unknown'
 
-    const { data: newPatient, error: createError } = await supabaseAdmin
-      .from('patients')
-      .insert({
-        phone_number: normalizedPhone,
-        first_name: firstName,
-        last_name: lastName,
-        language: language_preference === 'en' ? 'en' : 'sw'
-      })
-      .select()
-      .single()
-
-    if (createError) {
-      console.error('Error creating patient:', createError)
-      return NextResponse.json(
-        { 
-          error: 'Hitilafu katika kusajili mgonjwa mpya / Error registering new patient',
-          code: 'CREATE_ERROR',
-          details: createError.message
-        },
-        { status: 500 }
-      )
-    }
+    const newPatient = await prisma.patient.create({
+      data: {
+        phoneNumber: normalizedPhone,
+        firstName: firstName,
+        lastName: lastName,
+        language: language_preference
+      }
+    })
 
     return NextResponse.json({
       patient: newPatient,

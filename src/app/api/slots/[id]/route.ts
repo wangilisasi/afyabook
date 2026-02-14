@@ -1,6 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { supabaseAdmin } from '@/lib/supabase'
+import { prisma } from '@/lib/prisma'
 import { calculateDuration } from '@/lib/date-utils'
+import { validateParams } from '@/lib/validation/helpers'
+import { z } from 'zod'
+
+const SlotParamsSchema = z.object({
+  id: z.string().uuid()
+})
 
 /**
  * GET /api/slots/[id]
@@ -45,81 +51,38 @@ export async function GET(
     const { id } = await params
 
     // Validate slot ID
-    if (!id) {
-      return NextResponse.json(
-        { 
-          error: 'Kitambulisho cha nafasi kinahitajika / Slot ID is required',
-          code: 'MISSING_SLOT_ID'
-        },
-        { status: 400 }
-      )
+    const validation = validateParams({ id }, SlotParamsSchema)
+    if (!validation.success) {
+      return validation.error
     }
 
-    // Validate UUID format
-    const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
-    if (!uuidRegex.test(id)) {
-      return NextResponse.json(
-        { 
-          error: 'Kitambulisho cha nafasi sio sahihi / Invalid slot ID format',
-          code: 'INVALID_SLOT_ID'
+    // Fetch slot with clinic and staff details using Prisma
+    const slot = await prisma.appointmentSlot.findUnique({
+      where: { id },
+      include: {
+        clinic: {
+          select: {
+            id: true,
+            name: true,
+            address: true,
+            phoneNumber: true,
+            region: true,
+            timezone: true
+          }
         },
-        { status: 400 }
-      )
-    }
-
-    // Fetch slot with clinic and staff details
-    const { data: slot, error } = await supabaseAdmin
-      .from('appointment_slots')
-      .select(`
-        id,
-        slot_date,
-        start_time,
-        end_time,
-        is_available,
-        created_at,
-        clinic:clinics (
-          id,
-          name,
-          address,
-          phone_number,
-          region,
-          timezone
-        ),
-        staff (
-          id,
-          first_name,
-          last_name,
-          role,
-          specialization,
-          license_number,
-          phone_number
-        )
-      `)
-      .eq('id', id)
-      .single()
-
-    if (error) {
-      if (error.code === 'PGRST116') {
-        // No rows found
-        return NextResponse.json(
-          { 
-            error: 'Nafisi haijapatikana / Slot not found',
-            code: 'SLOT_NOT_FOUND'
-          },
-          { status: 404 }
-        )
+        staff: {
+          select: {
+            id: true,
+            firstName: true,
+            lastName: true,
+            role: true,
+            specialization: true,
+            licenseNumber: true,
+            phoneNumber: true
+          }
+        }
       }
-
-      console.error('Error fetching slot:', error)
-      return NextResponse.json(
-        { 
-          error: 'Hitilafu katika kupata maelezo ya nafasi / Error fetching slot details',
-          code: 'FETCH_ERROR',
-          details: error.message
-        },
-        { status: 500 }
-      )
-    }
+    })
 
     if (!slot) {
       return NextResponse.json(
@@ -134,25 +97,25 @@ export async function GET(
     // Format the response
     const formattedSlot = {
       id: slot.id,
-      slot_date: slot.slot_date,
-      start_time: slot.start_time,
-      end_time: slot.end_time,
-      duration: calculateDuration(slot.start_time, slot.end_time),
-      is_available: slot.is_available,
-      created_at: slot.created_at,
-      clinic: Array.isArray(slot.clinic) ? slot.clinic[0] : slot.clinic,
-      staff: Array.isArray(slot.staff) ? slot.staff[0] : slot.staff
+      slot_date: slot.slotDate,
+      start_time: slot.startTime,
+      end_time: slot.endTime,
+      duration: calculateDuration(slot.startTime, slot.endTime),
+      is_available: slot.isAvailable,
+      created_at: slot.createdAt,
+      clinic: slot.clinic,
+      staff: slot.staff
     }
 
     // Check if slot is in the past
-    const slotDateTime = new Date(`${slot.slot_date}T${slot.start_time}`)
+    const slotDateTime = new Date(`${slot.slotDate.toISOString().split('T')[0]}T${slot.startTime}`)
     const now = new Date()
     const isPast = slotDateTime < now
 
     return NextResponse.json({
       slot: formattedSlot,
       is_past: isPast,
-      can_book: slot.is_available && !isPast
+      can_book: slot.isAvailable && !isPast
     })
 
   } catch (error) {
@@ -166,4 +129,3 @@ export async function GET(
     )
   }
 }
-

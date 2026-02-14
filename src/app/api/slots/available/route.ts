@@ -1,7 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { supabaseAdmin } from '@/lib/supabase'
+import { prisma } from '@/lib/prisma'
 import { calculateDuration } from '@/lib/date-utils'
 import { getCurrentTanzaniaTime, MILLISECONDS_PER_MINUTE } from '@/lib/timezone'
+import { validateQuery } from '@/lib/validation/helpers'
+import { GetAvailableSlotsQuerySchema } from '@/lib/validation/schemas'
 
 /**
  * GET /api/slots/available
@@ -34,50 +36,20 @@ import { getCurrentTanzaniaTime, MILLISECONDS_PER_MINUTE } from '@/lib/timezone'
  */
 export async function GET(request: NextRequest) {
   try {
-    // Get query parameters
-    const searchParams = request.nextUrl.searchParams
-    const clinicId = searchParams.get('clinic_id')
-    const date = searchParams.get('date')
-    const serviceType = searchParams.get('service_type')
-
-    // Validate required parameters
-    if (!clinicId) {
-      return NextResponse.json(
-        { 
-          error: 'Kitambulisho cha kliniki kinahitajika / Clinic ID is required',
-          code: 'MISSING_CLINIC_ID'
-        },
-        { status: 400 }
-      )
+    // Validate query parameters
+    const validation = validateQuery(request.nextUrl.searchParams, GetAvailableSlotsQuerySchema)
+    if (!validation.success) {
+      return validation.error
     }
 
-    if (!date) {
-      return NextResponse.json(
-        { 
-          error: 'Tarehe inahitajika / Date is required',
-          code: 'MISSING_DATE'
-        },
-        { status: 400 }
-      )
-    }
+    const { clinic_id, date, service_type } = validation.data
 
-    // Validate date format (YYYY-MM-DD)
-    const dateRegex = /^\d{4}-\d{2}-\d{2}$/
-    if (!dateRegex.test(date)) {
-      return NextResponse.json(
-        { 
-          error: 'Formati ya tarehe sio sahihi. Tumia YYYY-MM-DD / Invalid date format. Use YYYY-MM-DD',
-          code: 'INVALID_DATE_FORMAT'
-        },
-        { status: 400 }
-      )
-    }
-
-    // Check if date is in the past
+    // Parse the date
     const requestedDate = new Date(date)
     const today = new Date()
     today.setHours(0, 0, 0, 0)
     
+    // Check if date is in the past
     if (requestedDate < today) {
       return NextResponse.json(
         { 
@@ -88,82 +60,79 @@ export async function GET(request: NextRequest) {
       )
     }
 
-    // Build query for available slots
-    let query = supabaseAdmin
-      .from('appointment_slots')
-      .select(`
-        id,
-        slot_date,
-        start_time,
-        end_time,
-        is_available,
-        staff (
-          id,
-          first_name,
-          last_name,
-          role,
-          specialization
-        )
-      `)
-      .eq('clinic_id', clinicId)
-      .eq('slot_date', date)
-      .eq('is_available', true)
-
-    // Filter by service type if provided
-    // This assumes staff have specializations that match service types
-    if (serviceType) {
-      query = query.eq('staff.specialization', serviceType)
-    }
+    // Calculate date range for the requested date
+    const startOfDay = new Date(requestedDate)
+    startOfDay.setHours(0, 0, 0, 0)
+    const endOfDay = new Date(requestedDate)
+    endOfDay.setHours(23, 59, 59, 999)
 
     // If it's today, filter out past times (using Tanzania timezone EAT = UTC+3)
     const tanzaniaTime = getCurrentTanzaniaTime()
     const isToday = requestedDate.toDateString() === tanzaniaTime.toDateString()
     
+    let cutoffTime: string | undefined
     if (isToday) {
       // Only show slots that start after current time + buffer
       const bufferTime = new Date(tanzaniaTime.getTime() + 15 * MILLISECONDS_PER_MINUTE)
-      const cutoffTime = bufferTime.toLocaleTimeString('en-US', { 
+      cutoffTime = bufferTime.toLocaleTimeString('en-US', { 
         hour12: false, 
         hour: '2-digit', 
         minute: '2-digit',
         timeZone: 'Africa/Dar_es_Salaam'
       })
-      
-      query = query.gt('start_time', cutoffTime)
     }
 
-    // Order by start time
-    query = query.order('start_time', { ascending: true })
-
-    const { data: slots, error } = await query
-
-    if (error) {
-      console.error('Error fetching slots:', error)
-      return NextResponse.json(
-        { 
-          error: 'Hitilafu katika kupata nafasi / Error fetching slots',
-          code: 'FETCH_ERROR',
-          details: error.message
+    // Build query using Prisma
+    const slots = await prisma.appointmentSlot.findMany({
+      where: {
+        clinicId: clinic_id,
+        slotDate: {
+          gte: startOfDay,
+          lte: endOfDay
         },
-        { status: 500 }
-      )
-    }
+        isAvailable: true,
+        ...(service_type && {
+          staff: {
+            specialization: service_type
+          }
+        }),
+        ...(cutoffTime && {
+          startTime: {
+            gt: cutoffTime
+          }
+        })
+      },
+      include: {
+        staff: {
+          select: {
+            id: true,
+            firstName: true,
+            lastName: true,
+            role: true,
+            specialization: true
+          }
+        }
+      },
+      orderBy: {
+        startTime: 'asc'
+      }
+    })
 
     // Transform data for cleaner response
-    const formattedSlots = slots?.map(slot => ({
+    const formattedSlots = slots.map(slot => ({
       id: slot.id,
-      slot_date: slot.slot_date,
-      start_time: slot.start_time,
-      end_time: slot.end_time,
-      duration: calculateDuration(slot.start_time, slot.end_time),
-      is_available: slot.is_available,
-      staff: Array.isArray(slot.staff) ? slot.staff[0] : slot.staff
-    })) || []
+      slot_date: slot.slotDate,
+      start_time: slot.startTime,
+      end_time: slot.endTime,
+      duration: calculateDuration(slot.startTime, slot.endTime),
+      is_available: slot.isAvailable,
+      staff: slot.staff
+    }))
 
     return NextResponse.json({
       slots: formattedSlots,
       count: formattedSlots.length,
-      clinic_id: clinicId,
+      clinic_id: clinic_id,
       date: date,
       is_today: isToday
     })
@@ -179,4 +148,3 @@ export async function GET(request: NextRequest) {
     )
   }
 }
-
