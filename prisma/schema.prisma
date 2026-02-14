@@ -31,10 +31,33 @@ model Patient {
   appointments Appointment[]
   smsLogs      SmsLog[]
   waitlist     Waitlist[]
+  otps         PatientOTP[]
 
   @@index([phoneNumber]) // Fast lookup by phone
   @@index([createdAt])   // For recent patient queries
   @@map("patients")
+}
+
+// ============================================================================
+// PATIENT AUTHENTICATION
+// ============================================================================
+// OTP storage for patient login verification
+
+model PatientOTP {
+  id        String   @id @default(uuid())
+  patientId String   @unique @map("patient_id")
+  otp       String   // Hashed OTP code
+  attempts  Int      @default(0) // Failed verification attempts
+  used      Boolean  @default(false)
+  expiresAt DateTime @map("expires_at")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  // Relations
+  patient Patient @relation(fields: [patientId], references: [id], onDelete: Cascade)
+
+  @@index([patientId])
+  @@index([expiresAt])
+  @@map("patient_otps")
 }
 
 // ============================================================================
@@ -240,6 +263,7 @@ enum SmsType {
   RESCHEDULE             // Reschedule confirmation
   GENERAL                // General communication
   CHECK_IN_CONFIRMATION  // Checked in confirmation
+  VERIFICATION           // OTP/verification codes
 }
 
 enum SmsStatus {
