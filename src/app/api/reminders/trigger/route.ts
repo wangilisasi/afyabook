@@ -4,8 +4,10 @@
  * Manual trigger for sending appointment reminders
  * Protected by secret key for testing purposes
  * 
+ * Headers:
+ * - X-API-Key (required): Secret key for authentication
+ * 
  * Query Parameters:
- * - secret_key (required): Secret key for authentication
  * - type (optional): '24h' | 'same_day' | 'all' - Which reminders to send
  * - appointment_id (optional): Send reminder for specific appointment
  * 
@@ -50,9 +52,8 @@ if (!SECRET_KEY) {
 
 export async function POST(request: NextRequest) {
   try {
-    // Verify secret key
-    const searchParams = request.nextUrl.searchParams
-    const providedSecret = searchParams.get('secret_key')
+    // Verify secret key from header (security fix: no longer in URL)
+    const providedSecret = request.headers.get('x-api-key') || request.headers.get('X-API-Key')
 
     if (providedSecret !== SECRET_KEY) {
       return NextResponse.json(
@@ -76,6 +77,7 @@ export async function POST(request: NextRequest) {
     }
 
     // Get parameters
+    const searchParams = request.nextUrl.searchParams
     const reminderType = searchParams.get('type') as '24h' | 'same_day' | 'all' | null
     const specificAppointmentId = searchParams.get('appointment_id')
 

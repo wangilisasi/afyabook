@@ -5,30 +5,22 @@
 
 import { NextRequest, NextResponse } from 'next/server'
 import { verifyPatientOTP } from '@/lib/auth/auth-service'
+import { validateBody } from '@/lib/validation/helpers'
+import { VerifyOTPSchema } from '@/lib/validation/schemas'
 
 export async function POST(request: NextRequest) {
   try {
-    const { phoneNumber, otp } = await request.json()
-
-    if (!phoneNumber || !otp) {
-      return NextResponse.json(
-        { error: 'Phone number and OTP are required' },
-        { status: 400 }
-      )
+    // Validate request body using Zod
+    const validation = await validateBody(request, VerifyOTPSchema)
+    
+    if (!validation.success) {
+      return validation.error
     }
 
-    // Validate OTP format (6 digits)
-    if (!/^\d{6}$/.test(otp)) {
-      return NextResponse.json(
-        { error: 'OTP must be 6 digits' },
-        { status: 400 }
-      )
-    }
-
-    const formattedPhone = phoneNumber.startsWith('+') ? phoneNumber : `+${phoneNumber}`
+    const { phoneNumber, otp } = validation.data
 
     // Verify OTP
-    const result = await verifyPatientOTP(formattedPhone, otp)
+    const result = await verifyPatientOTP(phoneNumber, otp)
 
     if (!result.success) {
       return NextResponse.json(

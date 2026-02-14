@@ -3,12 +3,13 @@ import { prisma } from '@/lib/prisma'
 import { Prisma } from '@prisma/client'
 import { format } from 'date-fns'
 import { calculateDuration } from '@/lib/date-utils'
+import { requireAuth } from '@/lib/auth/middleware'
 
 /**
  * GET /api/appointments/today
  * 
  * Returns all appointments for today for a specific clinic.
- * Includes patient phone, slot time, and status.
+ * Requires clinic authentication.
  * 
  * Query Parameters:
  * - clinic_id (required): UUID of the clinic
@@ -54,9 +55,16 @@ import { calculateDuration } from '@/lib/date-utils'
  */
 export async function GET(request: NextRequest) {
   try {
+    // Require clinic authentication
+    const authResult = requireAuth(request, { requiredType: 'clinic' })
+    if (!authResult.success) {
+      return authResult.response
+    }
+    const auth = authResult.auth
+
     // Get query parameters
     const searchParams = request.nextUrl.searchParams
-    const clinicId = searchParams.get('clinic_id')
+    const clinicId = searchParams.get('clinic_id') || auth.clinicId
     const statusFilter = searchParams.get('status')
     const staffIdFilter = searchParams.get('staff_id')
 

@@ -5,31 +5,22 @@
 
 import { NextRequest, NextResponse } from 'next/server'
 import { sendPatientOTP } from '@/lib/auth/auth-service'
+import { validateBody } from '@/lib/validation/helpers'
+import { SendOTPSchema } from '@/lib/validation/schemas'
 
 export async function POST(request: NextRequest) {
   try {
-    const { phoneNumber } = await request.json()
-
-    if (!phoneNumber) {
-      return NextResponse.json(
-        { error: 'Phone number is required' },
-        { status: 400 }
-      )
-    }
-
-    // Validate phone number format (E.164)
-    const phoneRegex = /^\+[1-9]\d{1,14}$/
-    const formattedPhone = phoneNumber.startsWith('+') ? phoneNumber : `+${phoneNumber}`
+    // Validate request body using Zod
+    const validation = await validateBody(request, SendOTPSchema)
     
-    if (!phoneRegex.test(formattedPhone)) {
-      return NextResponse.json(
-        { error: 'Invalid phone number format. Use E.164 format (+255XXXXXXXXX)' },
-        { status: 400 }
-      )
+    if (!validation.success) {
+      return validation.error
     }
+
+    const { phoneNumber } = validation.data
 
     // Send OTP
-    const result = await sendPatientOTP(formattedPhone)
+    const result = await sendPatientOTP(phoneNumber)
 
     if (!result.success) {
       return NextResponse.json(

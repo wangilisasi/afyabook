@@ -12,6 +12,8 @@ import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { verifyPassword, createJWT } from '@/lib/auth/auth-service'
 import { logger } from '@/lib/logger'
+import { validateBody } from '@/lib/validation/helpers'
+import { ClinicLoginSchema } from '@/lib/validation/schemas'
 
 // Parse clinic credentials from env
 // Format: CLINIC_CREDENTIALS={"clinic-001": "$2a$12$...", "clinic-002": "$2a$12$..."}
@@ -31,15 +33,15 @@ const getClinicCredentials = (): Record<string, string> => {
 
 export async function POST(request: NextRequest) {
   try {
-    const { clinicId, password } = await request.json()
-    const normalizedClinicId = String(clinicId || '').trim()
-
-    if (!normalizedClinicId || !password) {
-      return NextResponse.json(
-        { error: 'Clinic ID and password required' },
-        { status: 400 }
-      )
+    // Validate request body using Zod
+    const validation = await validateBody(request, ClinicLoginSchema)
+    
+    if (!validation.success) {
+      return validation.error
     }
+
+    const { clinicId, password } = validation.data
+    const normalizedClinicId = clinicId.trim()
 
     const credentials = getClinicCredentials()
     const storedHash = credentials[normalizedClinicId]

@@ -4,8 +4,10 @@
  * Manual override endpoint for triggering appointment reminders.
  * Protected by secret key for testing and emergency use.
  * 
+ * HEADERS:
+ * - X-API-Key (required): Secret key for authentication
+ * 
  * QUERY PARAMETERS:
- * - secret_key (required): Secret key for authentication
  * - type (optional): '24h' | 'same_day' | 'all' - Which reminders to send
  * - appointment_id (optional): Send reminder for specific appointment only
  * - dry_run (optional): If 'true', simulate without sending actual SMS
@@ -36,13 +38,16 @@
  * EXAMPLES:
  * 
  * Test mode (no SMS sent):
- *   POST /api/reminders/send-now?secret_key=xxx&dry_run=true
+ *   POST /api/reminders/send-now?dry_run=true
+ *   Header: X-API-Key: xxx
  * 
  * Send specific reminder type:
- *   POST /api/reminders/send-now?secret_key=xxx&type=24h
+ *   POST /api/reminders/send-now?type=24h
+ *   Header: X-API-Key: xxx
  * 
  * Force re-send for a specific appointment:
- *   POST /api/reminders/send-now?secret_key=xxx&appointment_id=uuid
+ *   POST /api/reminders/send-now?appointment_id=uuid
+ *   Header: X-API-Key: xxx
  *   Body: { "force": true }
  * 
  * WHY THIS EXISTS:
@@ -54,6 +59,7 @@
  * 4. Debugging reminder issues in production
  * 
  * SECURITY NOTES:
+ * - Secret key must be passed in X-API-Key header (not URL)
  * - Always use HTTPS in production
  * - Rotate secret keys regularly
  * - Monitor usage via cron_logs table (triggered_by = 'manual')
@@ -112,11 +118,11 @@ if (!SECRET_KEY) {
 }
 
 /**
- * Verify authorization
+ * Verify authorization via X-API-Key header
+ * Secret key is no longer accepted as query parameter (security fix)
  */
 function verifyAuthorization(request: NextRequest): boolean {
-  const searchParams = request.nextUrl.searchParams
-  const providedSecret = searchParams.get('secret_key')
+  const providedSecret = request.headers.get('x-api-key') || request.headers.get('X-API-Key')
   return providedSecret === SECRET_KEY
 }
 
@@ -666,12 +672,11 @@ export async function GET(request: NextRequest) {
       },
       recentRuns,
       usage: {
-        send24hReminders: 'POST /api/reminders/send-now?secret_key=xxx&type=24h',
-        sendSameDayReminders: 'POST /api/reminders/send-now?secret_key=xxx&type=same_day',
-        sendAll: 'POST /api/reminders/send-now?secret_key=xxx&type=all',
-        testMode: 'POST /api/reminders/send-now?secret_key=xxx&dry_run=true',
-        forceResend: 'POST with body: { "force": true }',
-        specificAppointment: 'POST /api/reminders/send-now?secret_key=xxx&appointment_id=uuid'
+        send24hReminders: 'POST /api/reminders/send-now?type=24h (Header: X-API-Key)',
+        sendSameDayReminders: 'POST /api/reminders/send-now?type=same_day (Header: X-API-Key)',
+        sendAll: 'POST /api/reminders/send-now?type=all (Header: X-API-Key)',
+        testMode: 'POST /api/reminders/send-now?dry_run=true (Header: X-API-Key)',
+        specificAppointment: 'POST /api/reminders/send-now?appointment_id=uuid (Header: X-API-Key)'
       }
     })
 

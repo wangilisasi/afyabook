@@ -12,12 +12,29 @@ import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { startOfDay, endOfDay, startOfWeek, endOfWeek, startOfMonth, endOfMonth, subDays } from 'date-fns'
 
+import { requireAuth } from '@/lib/auth/middleware'
+
 export async function GET(
   request: NextRequest,
   { params }: { params: Promise<{ clinic_id: string }> }
 ) {
   try {
+    // Require clinic authentication
+    const authResult = requireAuth(request, { requiredType: 'clinic' })
+    if (!authResult.success) {
+      return authResult.response
+    }
+
     const { clinic_id } = await params
+    
+    // Verify clinic is accessing their own data
+    if (clinic_id !== authResult.auth.clinicId) {
+      return NextResponse.json(
+        { error: 'Access denied. Cannot view other clinic data.' },
+        { status: 403 }
+      )
+    }
+
     const searchParams = request.nextUrl.searchParams
     const period = searchParams.get('period') as 'day' | 'week' | 'month' || 'week'
     
