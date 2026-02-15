@@ -1,21 +1,19 @@
-import { NextRequest, NextResponse } from 'next/server'
-import { prisma } from '@/lib/prisma'
+import { NextResponse } from 'next/server'
 import { Prisma } from '@prisma/client'
 import { format } from 'date-fns'
 import { calculateDuration } from '@/lib/date-utils'
-import { requireAuth } from '@/lib/auth/middleware'
+import { withRLS } from '@/lib/middleware/rls-route-helpers'
 
 /**
  * GET /api/appointments/today
- * 
- * Returns all appointments for today for a specific clinic.
- * Requires clinic authentication.
- * 
+ *
+ * Returns all appointments for today for the authenticated clinic.
+ * Uses RLS (Row Level Security) to ensure staff only see their clinic's data.
+ *
  * Query Parameters:
- * - clinic_id (required): UUID of the clinic
  * - status (optional): Filter by status (booked, confirmed, checked_in, etc.)
  * - staff_id (optional): Filter by staff member
- * 
+ *
  * Response:
  * {
  *   appointments: Array<{
@@ -53,42 +51,25 @@ import { requireAuth } from '@/lib/auth/middleware'
  *   date: string
  * }
  */
-export async function GET(request: NextRequest) {
+export const GET = withRLS(async (request, { auth, db }) => {
   try {
-    // Require clinic authentication
-    const authResult = requireAuth(request, { requiredType: 'clinic' })
-    if (!authResult.success) {
-      return authResult.response
-    }
-    const auth = authResult.auth
-
     // Get query parameters
     const searchParams = request.nextUrl.searchParams
-    const clinicId = searchParams.get('clinic_id') || auth.clinicId
     const statusFilter = searchParams.get('status')
     const staffIdFilter = searchParams.get('staff_id')
 
-    // Validation: Required parameters
-    if (!clinicId) {
-      return NextResponse.json(
-        {
-          error: 'Kitambulisho cha kliniki kinahitajika / Clinic ID is required',
-          code: 'MISSING_CLINIC_ID'
-        },
-        { status: 400 }
-      )
-    }
-
-    // Validate UUID format
-    const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[4][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
-    if (!uuidRegex.test(clinicId)) {
-      return NextResponse.json(
-        {
-          error: 'Kitambulisho cha kliniki sio sahihi / Invalid clinic ID format',
-          code: 'INVALID_CLINIC_ID'
-        },
-        { status: 400 }
-      )
+    // Validate staff_id if provided
+    if (staffIdFilter) {
+      const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[4][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
+      if (!uuidRegex.test(staffIdFilter)) {
+        return NextResponse.json(
+          {
+            error: 'Kitambulisho cha mtaalamu sio sahihi / Invalid staff ID format',
+            code: 'INVALID_STAFF_ID'
+          },
+          { status: 400 }
+        )
+      }
     }
 
     // Get today's date in Tanzania timezone (EAT = UTC+3)
@@ -97,8 +78,8 @@ export async function GET(request: NextRequest) {
     const endOfDay = new Date(tanzaniaTime.getFullYear(), tanzaniaTime.getMonth(), tanzaniaTime.getDate(), 23, 59, 59, 999)
 
     // Build where clause using Prisma types
+    // Note: RLS automatically filters by clinic_id, so we don't need to specify it
     const whereClause: Prisma.AppointmentWhereInput = {
-      clinicId: clinicId,
       slot: {
         slotDate: {
           gte: startOfDay,
@@ -111,7 +92,7 @@ export async function GET(request: NextRequest) {
     if (statusFilter) {
       const validStatuses = ['BOOKED', 'CONFIRMED', 'REMINDER_SENT', 'CHECKED_IN', 'COMPLETED', 'CANCELLED', 'NO_SHOW']
       const normalizedStatus = statusFilter.toUpperCase()
-      
+
       if (validStatuses.includes(normalizedStatus)) {
         whereClause.status = normalizedStatus as 'BOOKED' | 'CONFIRMED' | 'REMINDER_SENT' | 'CHECKED_IN' | 'COMPLETED' | 'CANCELLED' | 'NO_SHOW'
       }
@@ -119,23 +100,13 @@ export async function GET(request: NextRequest) {
 
     // Add staff filter if provided
     if (staffIdFilter) {
-      if (!uuidRegex.test(staffIdFilter)) {
-        return NextResponse.json(
-          {
-            error: 'Kitambulisho cha mtaalamu sio sahihi / Invalid staff ID format',
-            code: 'INVALID_STAFF_ID'
-          },
-          { status: 400 }
-        )
-      }
-      // Type-safe way to add staffId to the slot filter
       const slotFilter = whereClause.slot as { slotDate: { gte: Date; lte: Date }; staffId?: string }
       slotFilter.staffId = staffIdFilter
       whereClause.slot = slotFilter
     }
 
-    // Fetch appointments
-    const appointments = await prisma.appointment.findMany({
+    // Fetch appointments - RLS automatically filters to only show this clinic's data
+    const appointments = await db.appointment.findMany({
       where: whereClause,
       include: {
         patient: {
@@ -180,22 +151,22 @@ export async function GET(request: NextRequest) {
     appointments.forEach(apt => {
       // Count by status
       summary.byStatus[apt.status] = (summary.byStatus[apt.status] || 0) + 1
-      
+
       // Calculate checked in
       if (apt.status === 'CHECKED_IN' || apt.status === 'COMPLETED') {
         summary.checkedIn++
       }
-      
+
       // Calculate pending (booked or confirmed but not yet checked in)
       if (apt.status === 'BOOKED' || apt.status === 'CONFIRMED' || apt.status === 'REMINDER_SENT') {
         summary.pending++
       }
-      
+
       // Calculate completed
       if (apt.status === 'COMPLETED') {
         summary.completed++
       }
-      
+
       // Calculate cancelled
       if (apt.status === 'CANCELLED' || apt.status === 'NO_SHOW') {
         summary.cancelled++
@@ -234,7 +205,7 @@ export async function GET(request: NextRequest) {
         completed: summary.completed,
         cancelled: summary.cancelled
       },
-      clinicId: clinicId,
+      clinicId: auth.clinicId,
       date: format(tanzaniaTime, 'yyyy-MM-dd'),
       filters: {
         status: statusFilter || null,
@@ -244,7 +215,7 @@ export async function GET(request: NextRequest) {
 
   } catch (error) {
     console.error('Error fetching today\'s appointments:', error)
-    
+
     return NextResponse.json(
       {
         error: 'Hitilafu katika kupata miadi ya leo / Error fetching today\'s appointments',
@@ -253,5 +224,4 @@ export async function GET(request: NextRequest) {
       { status: 500 }
     )
   }
-}
-
+}, { requiredType: 'clinic', requireClinic: true })

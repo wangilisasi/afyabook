@@ -1,10 +1,11 @@
 import { AsyncLocalStorage } from 'async_hooks'
 import { Prisma } from '@prisma/client'
+import { prisma } from '@/lib/prisma'
 
 // Authorization context - set per request
 export interface AuthContext {
   userId?: string
-  userRole?: 'admin' | 'doctor' | 'nurse' | 'patient'
+  userRole?: 'admin' | 'doctor' | 'nurse' | 'patient' | 'owner'
   clinicId?: string
   isAuthenticated: boolean
 }
@@ -20,6 +21,49 @@ export function withAuthContext<T>(context: AuthContext, fn: () => Promise<T>): 
 // Helper to get current auth context
 export function getAuthContext(): AuthContext | undefined {
   return authContext.getStore()
+}
+
+/**
+ * Execute a database query with RLS context
+ * This sets the PostgreSQL session variables that RLS policies use
+ */
+export async function withRLSContext<T>(
+  context: AuthContext,
+  fn: () => Promise<T>
+): Promise<T> {
+  return withAuthContext(context, async () => {
+    // If no clinic context, just run the function
+    if (!context.clinicId && context.userRole !== 'admin') {
+      return fn()
+    }
+
+    // Set PostgreSQL session variables for RLS policies
+    try {
+      await prisma.$executeRawUnsafe(
+        `SET LOCAL app.current_clinic_id = '${context.clinicId || ''}'`
+      )
+      await prisma.$executeRawUnsafe(
+        `SET LOCAL app.current_user_role = '${context.userRole || ''}'`
+      )
+
+      const result = await fn()
+
+      // Reset session variables after query
+      await prisma.$executeRawUnsafe('RESET app.current_clinic_id')
+      await prisma.$executeRawUnsafe('RESET app.current_user_role')
+
+      return result
+    } catch (error) {
+      // Reset on error
+      try {
+        await prisma.$executeRawUnsafe('RESET app.current_clinic_id')
+        await prisma.$executeRawUnsafe('RESET app.current_user_role')
+      } catch {
+        // Ignore reset errors
+      }
+      throw error
+    }
+  })
 }
 
 // Prisma middleware parameters type with generic where clause
@@ -154,4 +198,64 @@ function applyAuthorizationFilters(
   }
 
   return newParams
+}
+
+/**
+ * Execute Prisma queries with RLS enforcement
+ * 
+ * Usage in API routes:
+ * ```
+ * const patients = await applyRLS(auth, () => 
+ *   prisma.patient.findMany()
+ * )
+ * ```
+ */
+export async function applyRLS<T>(
+  auth: AuthContext,
+  queryFn: () => Promise<T>
+): Promise<T> {
+  return withRLSContext(auth, queryFn)
+}
+
+/**
+ * Check if user has access to a specific clinic
+ */
+export function canAccessClinic(auth: AuthContext, clinicId: string): boolean {
+  if (auth.userRole === 'admin') return true
+  return auth.clinicId === clinicId
+}
+
+/**
+ * Get clinic-aware Prisma client
+ * Returns a proxy that automatically applies RLS context
+ */
+export function getRLSPrisma(auth: AuthContext) {
+  return new Proxy(prisma, {
+    get(target, prop) {
+      const value = (target as unknown as Record<string, unknown>)[prop as string]
+
+      // If it's a model (like prisma.patient, prisma.appointment), wrap it
+      if (typeof value === 'object' && value !== null) {
+        return new Proxy(value, {
+          get(model, method) {
+            const modelMethod = (model as Record<string, unknown>)[method as string]
+
+            // Wrap query methods
+            if (typeof modelMethod === 'function' && 
+                ['findMany', 'findFirst', 'findUnique', 'findFirstOrThrow', 'findUniqueOrThrow',
+                 'create', 'createMany', 'update', 'updateMany', 'delete', 'deleteMany',
+                 'upsert', 'count', 'aggregate', 'groupBy'].includes(method as string)) {
+              return async (...args: unknown[]) => {
+                return applyRLS(auth, async () => (modelMethod as (...args: unknown[]) => Promise<unknown>).apply(model, args))
+              }
+            }
+
+            return modelMethod
+          }
+        })
+      }
+
+      return value
+    }
+  }) as typeof prisma
 }
