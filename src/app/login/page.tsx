@@ -1,43 +1,46 @@
 /**
  * Clinic Staff Login Page
- * Simple password-based authentication for clinic access
- * No complex auth - just clinic_id + password stored in env
+ * Uses NextAuth.js for authentication
  */
 
-'use client'
+"use client"
 
-import { useState } from 'react'
-import { useRouter } from 'next/navigation'
+import { useState } from "react"
+import { useRouter, useSearchParams } from "next/navigation"
+import { signIn } from "next-auth/react"
 
 export default function LoginPage() {
   const router = useRouter()
-  const [clinicId, setClinicId] = useState('')
-  const [password, setPassword] = useState('')
-  const [error, setError] = useState('')
+  const searchParams = useSearchParams()
+  const callbackUrl = searchParams.get("callbackUrl") || "/dashboard"
+  
+  const [clinicId, setClinicId] = useState("")
+  const [password, setPassword] = useState("")
+  const [error, setError] = useState("")
   const [loading, setLoading] = useState(false)
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
-    setError('')
+    setError("")
     setLoading(true)
 
     try {
-      const response = await fetch('/api/auth/login', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ clinicId, password })
+      const result = await signIn("clinic-login", {
+        clinicId,
+        password,
+        redirect: false,
+        callbackUrl,
       })
 
-      if (response.ok) {
-        const data = await response.json()
-        const dashboardClinicId = data?.clinicId || clinicId
-        router.push(`/dashboard/${dashboardClinicId}/today`)
-      } else {
-        const data = await response.json()
-        setError(data.error || 'Ukomeshaji sio sahihi / Invalid credentials')
+      if (result?.error) {
+        setError("Ukomeshaji sio sahihi / Invalid credentials")
+      } else if (result?.ok) {
+        // Get the clinic ID from the session to redirect correctly
+        router.push(callbackUrl)
+        router.refresh()
       }
     } catch {
-      setError('Hitilafu ya mtandao / Network error')
+      setError("Hitilafu ya mtandao / Network error")
     } finally {
       setLoading(false)
     }
@@ -107,7 +110,7 @@ export default function LoginPage() {
                 Inggia...
               </>
             ) : (
-              'Ingia / Login'
+              "Ingia / Login"
             )}
           </button>
         </form>

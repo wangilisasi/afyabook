@@ -1,59 +1,41 @@
 /**
- * Authentication Middleware
- * Validates JWT tokens for protected routes
+ * Authentication Middleware (NextAuth.js)
+ * Validates sessions for protected routes
  */
 
-import { NextRequest, NextResponse } from 'next/server'
-import { verifyJWT } from '@/lib/auth/auth-service'
+import { NextRequest, NextResponse } from "next/server"
+import { auth } from "@/lib/auth/auth"
 
 export interface AuthContext {
   userId: string
-  userType: 'patient' | 'clinic'
+  userType: "patient" | "clinic"
   phoneNumber?: string
   clinicId?: string
 }
 
-// JWT payload types
-interface PatientJWTPayload {
-  patientId: string
-  phoneNumber: string
-  type: 'patient'
-}
-
-interface ClinicJWTPayload {
-  clinicId: string
-  type: 'clinic'
-}
-
 /**
- * Extract and verify JWT token from request cookies
+ * Extract auth context from NextAuth session
  */
-export function getAuthFromRequest(request: NextRequest): AuthContext | null {
-  // Check for patient session
-  const patientToken = request.cookies.get('patient_session')?.value
-  if (patientToken) {
-    const decoded = verifyJWT(patientToken)
-    if (decoded && 'patientId' in decoded) {
-      const payload = decoded as PatientJWTPayload
-      return {
-        userId: payload.patientId,
-        userType: 'patient',
-        phoneNumber: payload.phoneNumber
-      }
-    }
+export async function getAuthFromRequest(request: NextRequest): Promise<AuthContext | null> {
+  const session = await auth()
+
+  if (!session?.user) {
+    return null
   }
 
-  // Check for clinic session
-  const clinicToken = request.cookies.get('clinic_session')?.value
-  if (clinicToken) {
-    const decoded = verifyJWT(clinicToken)
-    if (decoded && 'clinicId' in decoded) {
-      const payload = decoded as ClinicJWTPayload
-      return {
-        userId: payload.clinicId,
-        userType: 'clinic',
-        clinicId: payload.clinicId
-      }
+  const user = session.user
+
+  if (user.type === "patient") {
+    return {
+      userId: user.patientId || user.id,
+      userType: "patient",
+      phoneNumber: user.phoneNumber,
+    }
+  } else if (user.type === "clinic") {
+    return {
+      userId: user.clinicId || user.id,
+      userType: "clinic",
+      clinicId: user.clinicId,
     }
   }
 
@@ -66,23 +48,17 @@ export function getAuthFromRequest(request: NextRequest): AuthContext | null {
  */
 export function withAuth(
   handler: (request: NextRequest, context: AuthContext) => Promise<NextResponse>,
-  options: { requiredType?: 'patient' | 'clinic' } = {}
+  options: { requiredType?: "patient" | "clinic" } = {}
 ) {
   return async (request: NextRequest): Promise<NextResponse> => {
-    const auth = getAuthFromRequest(request)
+    const auth = await getAuthFromRequest(request)
 
     if (!auth) {
-      return NextResponse.json(
-        { error: 'Unauthorized. Please login.' },
-        { status: 401 }
-      )
+      return NextResponse.json({ error: "Unauthorized. Please login." }, { status: 401 })
     }
 
     if (options.requiredType && auth.userType !== options.requiredType) {
-      return NextResponse.json(
-        { error: `Access denied. ${options.requiredType} access required.` },
-        { status: 403 }
-      )
+      return NextResponse.json({ error: `Access denied. ${options.requiredType} access required.` }, { status: 403 })
     }
 
     return handler(request, auth)
@@ -92,29 +68,23 @@ export function withAuth(
 /**
  * Check if user is authenticated (for use in route handlers)
  */
-export function requireAuth(
+export async function requireAuth(
   request: NextRequest,
-  options: { requiredType?: 'patient' | 'clinic' } = {}
-): { success: true; auth: AuthContext } | { success: false; response: NextResponse } {
-  const auth = getAuthFromRequest(request)
+  options: { requiredType?: "patient" | "clinic" } = {}
+): Promise<{ success: true; auth: AuthContext } | { success: false; response: NextResponse }> {
+  const auth = await getAuthFromRequest(request)
 
   if (!auth) {
     return {
       success: false,
-      response: NextResponse.json(
-        { error: 'Unauthorized. Please login.' },
-        { status: 401 }
-      )
+      response: NextResponse.json({ error: "Unauthorized. Please login." }, { status: 401 }),
     }
   }
 
   if (options.requiredType && auth.userType !== options.requiredType) {
     return {
       success: false,
-      response: NextResponse.json(
-        { error: `Access denied. ${options.requiredType} access required.` },
-        { status: 403 }
-      )
+      response: NextResponse.json({ error: `Access denied. ${options.requiredType} access required.` }, { status: 403 }),
     }
   }
 

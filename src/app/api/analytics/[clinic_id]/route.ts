@@ -20,7 +20,7 @@ export async function GET(
 ) {
   try {
     // Require clinic authentication
-    const authResult = requireAuth(request, { requiredType: 'clinic' })
+    const authResult = await requireAuth(request, { requiredType: 'clinic' })
     if (!authResult.success) {
       return authResult.response
     }

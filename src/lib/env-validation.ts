@@ -13,7 +13,7 @@ interface EnvVar {
 
 const requiredEnvVars: EnvVar[] = [
   { name: 'DATABASE_URL', required: true },
-  { name: 'JWT_SECRET', required: true },
+  { name: 'AUTH_SECRET', required: true },
   { 
     name: 'CLINIC_CREDENTIALS', 
     required: true,

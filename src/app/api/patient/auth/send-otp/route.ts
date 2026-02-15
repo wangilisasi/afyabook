@@ -4,7 +4,7 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server'
-import { sendPatientOTP } from '@/lib/auth/auth-service'
+import { sendPatientOTP } from '@/lib/auth/otp-service'
 import { validateBody } from '@/lib/validation/helpers'
 import { SendOTPSchema } from '@/lib/validation/schemas'
 

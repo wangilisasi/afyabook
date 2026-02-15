@@ -3,14 +3,14 @@
  * Simplifies protecting API routes with Row Level Security
  */
 
-import { NextRequest, NextResponse } from 'next/server'
-import { requireAuth, AuthContext as BaseAuthContext } from '@/lib/auth/middleware'
-import { applyRLS, getRLSPrisma } from '@/lib/middleware/authorization'
-import { prisma } from '@/lib/prisma'
+import { NextRequest, NextResponse } from "next/server"
+import { requireAuth, AuthContext as BaseAuthContext } from "@/lib/auth/middleware"
+import { applyRLS, getRLSPrisma } from "@/lib/middleware/authorization"
+import { prisma } from "@/lib/prisma"
 
 // Extended auth context with additional fields from JWT
 export interface RLSAuthContext extends BaseAuthContext {
-  role?: 'admin' | 'doctor' | 'nurse' | 'owner'
+  role?: "admin" | "doctor" | "nurse" | "owner"
   clinicId: string
 }
 
@@ -18,47 +18,44 @@ export interface RLSAuthContext extends BaseAuthContext {
  * Extract auth context from request and verify RLS requirements
  * Returns either the auth context or an error response
  */
-export function requireRLSAuth(
+export async function requireRLSAuth(
   request: NextRequest,
-  options: { 
-    requiredType?: 'patient' | 'clinic'
-    requireClinic?: boolean 
+  options: {
+    requiredType?: "patient" | "clinic"
+    requireClinic?: boolean
   } = {}
-): { success: true; auth: RLSAuthContext } | { success: false; response: NextResponse } {
-  const authResult = requireAuth(request, options)
-  
+): Promise<{ success: true; auth: RLSAuthContext } | { success: false; response: NextResponse }> {
+  const authResult = await requireAuth(request, options)
+
   if (!authResult.success) {
     return authResult
   }
-  
+
   const auth = authResult.auth
-  
+
   // For clinic routes, we need a clinic_id
-  if (options.requireClinic !== false && auth.userType === 'clinic') {
+  if (options.requireClinic !== false && auth.userType === "clinic") {
     if (!auth.clinicId) {
       return {
         success: false,
-        response: NextResponse.json(
-          { error: 'Invalid session. Clinic ID missing.' },
-          { status: 403 }
-        )
+        response: NextResponse.json({ error: "Invalid session. Clinic ID missing." }, { status: 403 }),
       }
     }
   }
-  
+
   return {
     success: true,
     auth: {
       ...auth,
-      role: auth.clinicId ? 'doctor' : undefined, // Default role based on type
-      clinicId: auth.clinicId || ''
-    }
+      role: auth.clinicId ? "doctor" : undefined, // Default role based on type
+      clinicId: auth.clinicId || "",
+    },
   }
 }
 
 /**
  * Higher-order function to protect API routes with RLS
- * 
+ *
  * Usage:
  * ```typescript
  * export const GET = withRLS(async (request, { auth, db }) => {
@@ -70,71 +67,66 @@ export function requireRLSAuth(
  * ```
  */
 export function withRLS(
-  handler: (
-    request: NextRequest, 
-    context: { auth: RLSAuthContext; db: typeof prisma }
-  ) => Promise<NextResponse>,
-  options: { 
-    requiredType?: 'patient' | 'clinic'
-    requireClinic?: boolean 
+  handler: (request: NextRequest, context: { auth: RLSAuthContext; db: typeof prisma }) => Promise<NextResponse>,
+  options: {
+    requiredType?: "patient" | "clinic"
+    requireClinic?: boolean
   } = {}
 ) {
   return async (request: NextRequest): Promise<NextResponse> => {
-    const authResult = requireRLSAuth(request, options)
-    
+    const authResult = await requireRLSAuth(request, options)
+
     if (!authResult.success) {
       return authResult.response
     }
-    
+
     const { auth } = authResult
-    
+
     try {
       // Execute handler with RLS context
       const result = await applyRLS(
-        { 
-          userId: auth.userId, 
-          userRole: auth.role || (auth.userType === 'clinic' ? 'doctor' : 'patient'),
+        {
+          userId: auth.userId,
+          userRole: auth.role || (auth.userType === "clinic" ? "doctor" : "patient"),
           clinicId: auth.clinicId,
-          isAuthenticated: true 
+          isAuthenticated: true,
         },
-        () => handler(request, { 
-          auth, 
-          db: getRLSPrisma({
-            userId: auth.userId,
-            userRole: auth.role || (auth.userType === 'clinic' ? 'doctor' : 'patient'),
-            clinicId: auth.clinicId,
-            isAuthenticated: true
+        () =>
+          handler(request, {
+            auth,
+            db: getRLSPrisma({
+              userId: auth.userId,
+              userRole: auth.role || (auth.userType === "clinic" ? "doctor" : "patient"),
+              clinicId: auth.clinicId,
+              isAuthenticated: true,
+            }),
           })
-        })
       )
-      
+
       return result
     } catch (error) {
-      console.error('RLS handler error:', error)
-      return NextResponse.json(
-        { error: 'Internal server error' },
-        { status: 500 }
-      )
+      console.error("RLS handler error:", error)
+      return NextResponse.json({ error: "Internal server error" }, { status: 500 })
     }
   }
 }
 
 /**
  * For use when you need to manually check authorization without the wrapper
- * 
+ *
  * Example:
  * ```typescript
  * export async function GET(request: NextRequest) {
- *   const authCheck = requireRLSAuth(request)
+ *   const authCheck = await requireRLSAuth(request)
  *   if (!authCheck.success) return authCheck.response
- *   
+ *
  *   const { auth } = authCheck
- *   
+ *
  *   const patients = await applyRLS(
  *     { userId: auth.userId, userRole: 'doctor', clinicId: auth.clinicId, isAuthenticated: true },
  *     () => prisma.patient.findMany()
  *   )
- *   
+ *
  *   return NextResponse.json({ patients })
  * }
  * ```

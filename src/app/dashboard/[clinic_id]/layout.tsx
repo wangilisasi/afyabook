@@ -3,10 +3,10 @@
  * Provides navigation and common UI for all dashboard pages
  */
 
-import { cookies } from 'next/headers'
-import { redirect } from 'next/navigation'
-import Link from 'next/link'
-import { prisma } from '@/lib/prisma'
+import { redirect } from "next/navigation"
+import Link from "next/link"
+import { prisma } from "@/lib/prisma"
+import { auth } from "@/lib/auth/auth"
 
 interface DashboardLayoutProps {
   children: React.ReactNode
@@ -17,7 +17,7 @@ async function getClinic(clinicId: string) {
   try {
     const clinic = await prisma.clinic.findUnique({
       where: { id: clinicId },
-      select: { id: true, name: true }
+      select: { id: true, name: true },
     })
     return clinic
   } catch {
@@ -25,24 +25,28 @@ async function getClinic(clinicId: string) {
   }
 }
 
-export default async function DashboardLayout({ 
-  children, 
-  params 
+export default async function DashboardLayout({
+  children,
+  params,
 }: DashboardLayoutProps) {
   const { clinic_id } = await params
-  
-  // Verify session
-  const cookieStore = await cookies()
-  const session = cookieStore.get('clinic_session')
-  
-  if (!session || session.value !== clinic_id) {
-    redirect('/login')
+
+  // Verify session using NextAuth
+  const session = await auth()
+
+  if (!session?.user || session.user.type !== "clinic") {
+    redirect("/login")
+  }
+
+  // Verify clinic access - clinic can only access their own data
+  if (session.user.clinicId !== clinic_id) {
+    redirect("/login")
   }
 
   const clinic = await getClinic(clinic_id)
-  
+
   if (!clinic) {
-    redirect('/login')
+    redirect("/login")
   }
 
   return (
@@ -59,7 +63,7 @@ export default async function DashboardLayout({
               </div>
               <span className="font-bold text-lg hidden sm:block">{clinic.name}</span>
             </Link>
-            
+
             <nav className="flex items-center gap-1 sm:gap-2">
               <NavLink href={`/dashboard/${clinic_id}/today`} icon="calendar">
                 <span className="hidden sm:inline">Leo</span>
@@ -79,21 +83,19 @@ export default async function DashboardLayout({
       </header>
 
       {/* Main Content */}
-      <main className="max-w-7xl mx-auto">
-        {children}
-      </main>
+      <main className="max-w-7xl mx-auto">{children}</main>
     </div>
   )
 }
 
-function NavLink({ 
-  href, 
-  children, 
-  icon 
-}: { 
+function NavLink({
+  href,
+  children,
+  icon,
+}: {
   href: string
   children: React.ReactNode
-  icon: 'calendar' | 'search' | 'plus' | 'chart'
+  icon: "calendar" | "search" | "plus" | "chart"
 }) {
   const icons = {
     calendar: (
@@ -115,14 +117,11 @@ function NavLink({
       <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
       </svg>
-    )
+    ),
   }
 
   return (
-    <Link 
-      href={href}
-      className="flex items-center gap-1 px-3 py-2 rounded-lg hover:bg-white/10 transition text-sm font-medium"
-    >
+    <Link href={href} className="flex items-center gap-1 px-3 py-2 rounded-lg hover:bg-white/10 transition text-sm font-medium">
       {icons[icon]}
       {children}
     </Link>
